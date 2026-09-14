@@ -85,23 +85,17 @@ class TicketBuilder {
     ));
 
     // ══════════════════════════════════════════
-    // DATOS DEL PROPIETARIO (condicional)
+    // DATOS DEL PROPIETARIO
     // ══════════════════════════════════════════
     final direccion = datos.direccionSucursal ?? '';
-    final dirLower = direccion.toLowerCase();
-    // Si la dirección ya contiene datos del dueño, no los duplicamos.
-    final yaTieneDueno = dirLower.contains('joaquin') ||
-        dirLower.contains('eamj');
 
-    if (!yaTieneDueno &&
-        datos.propietario != null &&
-        datos.propietario!.isNotEmpty) {
+    if (datos.propietario != null && datos.propietario!.isNotEmpty) {
       bytes.addAll(g.text(
         sanitizarTexto(datos.propietario!),
         styles: const PosStyles(align: PosAlign.center),
       ));
     }
-    if (!yaTieneDueno && datos.rfc != null && datos.rfc!.isNotEmpty) {
+    if (datos.rfc != null && datos.rfc!.isNotEmpty) {
       bytes.addAll(g.text(
         'R.F.C. ${sanitizarTexto(datos.rfc!)}',
         styles: const PosStyles(align: PosAlign.center),
@@ -116,9 +110,10 @@ class TicketBuilder {
       'Sucursal: ${sanitizarTexto(datos.sucursal)}',
       styles: const PosStyles(bold: true, align: PosAlign.center),
     ));
-    if (direccion.isNotEmpty) {
+    final dirLimpia = limpiarDireccion(direccion);
+    if (dirLimpia.isNotEmpty) {
       // Dividir dirección larga en líneas de ~32 caracteres para 58mm
-      final lineasDir = _dividirTexto(sanitizarTexto(direccion), 32);
+      final lineasDir = _dividirTexto(sanitizarTexto(dirLimpia), 32);
       for (final ld in lineasDir) {
         bytes.addAll(g.text(
           ld,
@@ -164,9 +159,13 @@ class TicketBuilder {
     bytes.addAll(g.text(_linea));
 
     for (final linea in datos.lineas) {
+      final desc = nombreArticuloCompleto(linea.modelo, linea.marca);
+      final lineasDesc = _dividirTexto(sanitizarTexto(desc), 18);
+      final primeraLinea = lineasDesc.isNotEmpty ? lineasDesc.first : '';
+
       bytes.addAll(g.row([
         PosColumn(
-          text: _recortar(linea.modelo, 20),
+          text: primeraLinea,
           width: 7,
         ),
         PosColumn(
@@ -180,6 +179,17 @@ class TicketBuilder {
           styles: const PosStyles(align: PosAlign.right),
         ),
       ]));
+
+      // Si el nombre del artículo es largo (>18 caracteres), continuar en renglones siguientes
+      if (lineasDesc.length > 1) {
+        for (var i = 1; i < lineasDesc.length; i++) {
+          bytes.addAll(g.text(
+            '   ${lineasDesc[i]}',
+            styles: const PosStyles(align: PosAlign.left),
+          ));
+        }
+      }
+
       if (linea.tipoPrecio != null && linea.tipoPrecio != 'default') {
         final optNombre = linea.tipoPrecio == 'precio_especial'
             ? 'Precio Especial'
@@ -255,6 +265,11 @@ class TicketBuilder {
       'Conserve su ticket',
       styles: const PosStyles(align: PosAlign.center),
     ));
+    bytes.addAll(g.feed(1));
+    bytes.addAll(g.text(
+      sanitizarTexto('Solicitar factura el día de su compra'),
+      styles: const PosStyles(bold: true, align: PosAlign.center),
+    ));
     bytes.addAll(g.feed(3));
     bytes.addAll(g.cut());
 
@@ -306,11 +321,25 @@ class TicketBuilder {
     return bytes;
   }
 
-  /// Limita el texto a [max] caracteres y sanitiza tildes/caracteres especiales.
-  static String _recortar(String texto, int max) {
-    final limpio = sanitizarTexto(texto);
-    if (limpio.length <= max) return limpio;
-    return limpio.substring(0, max);
+  /// Obtiene el nombre completo del artículo combinando marca y modelo sin duplicar si ya la incluye.
+  static String nombreArticuloCompleto(String modelo, String? marca) {
+    final mod = modelo.trim();
+    final mrc = (marca ?? '').trim();
+    if (mrc.isEmpty) return mod;
+    if (mod.toLowerCase().contains(mrc.toLowerCase())) return mod;
+    return '$mrc $mod';
+  }
+
+  /// Limpia nombres de dueño y RFC que pudieran estar incrustados accidentalmente en el campo de dirección.
+  static String limpiarDireccion(String direccion) {
+    var limpia = direccion;
+    limpia = limpia.replaceAll(RegExp(r'Joaquin\s+Gabriel\s+Estrada\s+Marquez', caseSensitive: false), '');
+    limpia = limpia.replaceAll(RegExp(r'R\.?F\.?C\.?\s*[:\s]*EAMJ-?760228-?E21', caseSensitive: false), '');
+    limpia = limpia.trim();
+    while (limpia.startsWith(',') || limpia.startsWith('-') || limpia.startsWith('.')) {
+      limpia = limpia.substring(1).trim();
+    }
+    return limpia;
   }
 
   /// Divide un texto largo en líneas de máximo [ancho] caracteres,

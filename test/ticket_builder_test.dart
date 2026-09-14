@@ -107,6 +107,7 @@ void main() {
     expect(textoCompleto, contains('EAMJ-760228-E21'));
     expect(textoCompleto, contains('LA SALLE'));
     expect(textoCompleto, contains('Pago: Efectivo'));
+    expect(textoCompleto, contains('Solicitar factura el dia de su compra'));
   });
 
   test('ticket no duplica datos del dueño si la dirección de la sucursal ya los incluye', () async {
@@ -129,10 +130,50 @@ void main() {
     final bytes = await builder.ticket(datos);
     final textoCompleto = String.fromCharCodes(bytes);
 
-    // Debe contener el nombre del dueño y RFC provenientes de la dirección (sin duplicarse en el encabezado)
+    // Debe contener el nombre del dueño y RFC provenientes del encabezado y la dirección limpia
     expect(textoCompleto, contains('Joaquin Gabriel Estrada Marquez'));
     expect(textoCompleto, contains('EAMJ-760228-E21'));
     expect(textoCompleto, contains('Matriz'));
+    expect(textoCompleto, contains('Carretera Villaflores'));
     expect(textoCompleto, contains('Pago: Tarjeta Debito'));
+    expect(textoCompleto, contains('Solicitar factura el dia de su compra'));
+  });
+
+  test('nombreArticuloCompleto combina marca y modelo sin duplicar', () {
+    expect(TicketBuilder.nombreArticuloCompleto('65', 'LTH'), 'LTH 65');
+    expect(TicketBuilder.nombreArticuloCompleto('65', 'LTH HI-TEC'), 'LTH HI-TEC 65');
+    expect(TicketBuilder.nombreArticuloCompleto('G-42', 'Gonher'), 'Gonher G-42');
+    expect(TicketBuilder.nombreArticuloCompleto('NS40', 'Voltar'), 'Voltar NS40');
+    expect(TicketBuilder.nombreArticuloCompleto('LTH 65', 'LTH'), 'LTH 65');
+    expect(TicketBuilder.nombreArticuloCompleto('48 AGM', null), '48 AGM');
+  });
+
+  test('ticket incluye marca del producto en las lineas de venta', () async {
+    final datos = DatosTicket(
+      encabezado: 'CASA BATERIAS',
+      sucursal: 'Matriz',
+      folio: 'NV-20260827-000086',
+      fecha: '27/08/2026 12:35',
+      empleado: 'PABLO DIAZ',
+      metodoPago: 'Tarjeta Débito',
+      lineas: [
+        const LineaTicket(
+          marca: 'LTH',
+          modelo: '65',
+          cantidad: 1,
+          precio: 2900,
+          conCasco: true,
+        ),
+      ],
+      total: 2900,
+    );
+
+    final bytes = await builder.ticket(datos);
+    final textoCompleto = String.fromCharCodes(bytes);
+
+    expect(textoCompleto, contains('LTH 65'));
+    expect(textoCompleto, contains('2,900.00'));
+    expect(textoCompleto, contains('(con casco / a cambio)'));
+    expect(textoCompleto, contains('Solicitar factura el dia de su compra'));
   });
 }

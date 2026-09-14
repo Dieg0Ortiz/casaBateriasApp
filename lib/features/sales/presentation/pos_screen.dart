@@ -308,7 +308,19 @@ class _PosScreenState extends State<PosScreen> {
 
   String get _nombreSucursal => _sucursalActual?.nombre ?? 'Sucursal Matriz';
 
-  String? get _direccionSucursal => _sucursalActual?.direccion;
+  String? get _direccionSucursal {
+    final dir = _sucursalActual?.direccion;
+    if (dir != null && dir.trim().isNotEmpty) {
+      return dir.trim();
+    }
+    final nombre = (_sucursalActual?.nombre ?? '').toLowerCase();
+    if (nombre.contains('matriz') || nombre.contains('villaflores')) {
+      return 'Carretera Villaflores entre 20 y 21 Sur, C.P. 29080';
+    } else if (nombre.contains('salle')) {
+      return 'Boulevard La Salle, Esq. Boulevard Belisario Dominguez S/N';
+    }
+    return null;
+  }
 
   ItemInventario? _buscarPorCodigo(String codigo) {
     final normalizado = codigo.trim();
