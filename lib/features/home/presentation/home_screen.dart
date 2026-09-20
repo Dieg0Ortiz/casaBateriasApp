@@ -10,6 +10,8 @@ import '../../inventory/presentation/inventory_screen.dart';
 import '../../sales/presentation/pos_screen.dart';
 import '../../purchases/presentation/purchases_screen.dart';
 import '../../cascos/presentation/intercambios_screen.dart';
+import '../../catalog/data/catalogo_remote_data_source.dart';
+import '../../auth/domain/user_profile.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -22,13 +24,54 @@ class _HomeScreenState extends State<HomeScreen> {
   int _tabSeleccionado = 0;
   final _moneda = NumberFormat.currency(locale: 'es_MX', symbol: r'$');
 
+  String? _sucursalNombreCargada;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final cashVm = context.read<CashViewModel>();
       if (!cashVm.cargando) cashVm.cargar();
+      _cargarSucursal();
     });
+  }
+
+  Future<void> _cargarSucursal() async {
+    final usuario = context.read<AuthViewModel>().usuario;
+    if (usuario?.sucursalNombre != null && usuario!.sucursalNombre!.isNotEmpty) {
+      if (mounted) setState(() => _sucursalNombreCargada = usuario.sucursalNombre);
+      return;
+    }
+    if (usuario?.sucursalId != null) {
+      try {
+        final sucs = await CatalogoRemoteDataSource().listarSucursales();
+        final match = sucs.where((s) => s.id == usuario!.sucursalId);
+        if (match.isNotEmpty && mounted) {
+          setState(() => _sucursalNombreCargada = match.first.nombre);
+        }
+      } catch (_) {}
+    }
+  }
+
+  String _formatearSucursal(UserProfile? usuario) {
+    String nombre = '';
+    if (usuario?.sucursalNombre != null && usuario!.sucursalNombre!.isNotEmpty) {
+      nombre = usuario.sucursalNombre!;
+    } else if (_sucursalNombreCargada != null && _sucursalNombreCargada!.isNotEmpty) {
+      nombre = _sucursalNombreCargada!;
+    } else if (usuario?.esAdministrador == true) {
+      return 'Corporativo';
+    } else if (usuario?.sucursalId != null) {
+      return 'Cargando...';
+    } else {
+      return 'Sin Sucursal';
+    }
+
+    final trimmed = nombre.trim();
+    if (trimmed.toLowerCase().startsWith('sucursal')) {
+      return trimmed;
+    }
+    return 'Sucursal $trimmed';
   }
 
   void _cambiarTab(int index) {
@@ -122,12 +165,13 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Hola, ${usuario?.nombreCompleto.split(' ').first ?? 'Usuario'}',
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Hola, ${usuario?.nombreCompleto.split(' ').first ?? 'Usuario'}',
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontSize: 17,
                     fontWeight: FontWeight.bold,
@@ -154,33 +198,40 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                     const SizedBox(width: 6),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 7,
-                          height: 7,
-                          decoration: BoxDecoration(
-                            color: cajaAbierta ? colors.primary : Colors.amber,
-                            shape: BoxShape.circle,
+                    Flexible(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 7,
+                            height: 7,
+                            decoration: BoxDecoration(
+                              color: cajaAbierta ? colors.primary : Colors.amber,
+                              shape: BoxShape.circle,
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Sucursal Matriz',
-                          style: TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                            color: colors.primary,
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              _formatearSucursal(usuario),
+                              style: TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: colors.primary,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ],
                 ),
               ],
             ),
+          ),
           ],
         ),
         actions: [

@@ -306,7 +306,12 @@ class _PosScreenState extends State<PosScreen> {
     return null;
   }
 
-  String get _nombreSucursal => _sucursalActual?.nombre ?? 'Sucursal Matriz';
+  String get _nombreSucursal =>
+      _sucursalActual?.nombre ??
+      context.read<AuthViewModel>().usuario?.sucursalNombre ??
+      (context.read<AuthViewModel>().usuario?.sucursalId != null
+          ? 'Cargando...'
+          : 'Sin Sucursal');
 
   String? get _direccionSucursal {
     final dir = _sucursalActual?.direccion;
