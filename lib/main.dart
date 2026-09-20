@@ -3,6 +3,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'app.dart';
+import 'core/network/api_client.dart';
 import 'core/network/token_storage.dart';
 import 'features/auth/data/auth_repository_impl.dart';
 import 'features/auth/presentation/auth_viewmodel.dart';
@@ -28,7 +29,13 @@ void main() async {
     MultiProvider(
       providers: [
         ChangeNotifierProvider(
-          create: (_) => AuthViewModel(AuthRepositoryImpl()),
+          create: (_) {
+            final authVm = AuthViewModel(AuthRepositoryImpl());
+            // Si la renovación de sesión falla, la app vuelve al login en vez
+            // de quedarse con errores en cada pantalla.
+            ApiClient.instance.onSesionExpirada = authVm.sesionExpirada;
+            return authVm;
+          },
         ),
         ChangeNotifierProvider(
           create: (_) => CatalogoViewModel(CatalogoRepositoryImpl()),

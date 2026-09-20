@@ -67,4 +67,13 @@ class AuthViewModel extends ChangeNotifier {
     _status = AuthStatus.desconectado;
     notifyListeners();
   }
+
+  /// La sesión ya no se pudo renovar: se regresa al login con un aviso.
+  void sesionExpirada() {
+    if (_status == AuthStatus.desconectado) return;
+    _usuario = null;
+    _status = AuthStatus.desconectado;
+    _mensajeError = 'Tu sesión expiró. Inicia sesión de nuevo.';
+    notifyListeners();
+  }
 }
