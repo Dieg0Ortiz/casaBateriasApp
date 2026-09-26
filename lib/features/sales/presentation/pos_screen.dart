@@ -624,7 +624,10 @@ class _PosScreenState extends State<PosScreen> {
     }
   }
 
-  Future<List<int>> _construirTicket(VentaResultado venta) async {
+  Future<List<int>> _construirTicket(
+    VentaResultado venta, {
+    bool copia = false,
+  }) async {
     final fecha = formatFechaHora(venta.creadaEn);
     final ticket = DatosTicket(
       encabezado: 'CASA BATERIAS',
@@ -639,7 +642,7 @@ class _PosScreenState extends State<PosScreen> {
       lineas: _ultimasLineas,
       total: venta.total,
     );
-    return TicketBuilder().ticket(ticket);
+    return TicketBuilder().ticket(ticket, copia: copia);
   }
 
   void _atenderPendienteCasco(SalesViewModel vm) {
@@ -897,7 +900,7 @@ class _PosScreenState extends State<PosScreen> {
                     child: OutlinedButton.icon(
                       icon: const Icon(Icons.print_rounded, size: 20),
                       label: const Text(
-                        'Imprimir ticket',
+                        'Imprimir ticket y copia',
                         style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
                       ),
                       style: OutlinedButton.styleFrom(
@@ -909,8 +912,10 @@ class _PosScreenState extends State<PosScreen> {
                         Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (_) => ImpresoraScreen(
-                              titulo: 'ticket',
+                              titulo: 'ticket y copia',
                               construir: () => _construirTicket(venta),
+                              construirCopia: () =>
+                                  _construirTicket(venta, copia: true),
                             ),
                           ),
                         );

@@ -176,4 +176,24 @@ void main() {
     expect(textoCompleto, contains('(con casco / a cambio)'));
     expect(textoCompleto, contains('Solicitar factura el dia de su compra'));
   });
+
+  test('ticket duplicado lleva la leyenda DUPLICADO y el original no', () async {
+    final datos = DatosTicket(
+      encabezado: 'CASA BATERIAS',
+      sucursal: 'Matriz',
+      folio: 'MT-20260925-000001',
+      fecha: '25/09/2026 12:00',
+      lineas: const [
+        LineaTicket(modelo: 'GONHER 47', cantidad: 1, precio: 2100),
+      ],
+      total: 2100,
+    );
+
+    final original = String.fromCharCodes(await builder.ticket(datos));
+    final copia = String.fromCharCodes(await builder.ticket(datos, copia: true));
+
+    expect(original, isNot(contains('DUPLICADO')));
+    expect(copia, contains('DUPLICADO'));
+    expect(copia, contains('MT-20260925-000001'));
+  });
 }

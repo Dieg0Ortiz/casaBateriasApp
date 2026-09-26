@@ -10,6 +10,7 @@ class ImpresoraScreen extends StatefulWidget {
     super.key,
     required this.titulo,
     required this.construir,
+    this.construirCopia,
   });
 
   /// Título del documento a imprimir (ej. "Ticket de venta").
@@ -17,6 +18,10 @@ class ImpresoraScreen extends StatefulWidget {
 
   /// Genera los bytes ESC/POS del documento a imprimir.
   final Future<List<int>> Function() construir;
+
+  /// Si se informa, se imprime un segundo ticket marcado como duplicado
+  /// en la misma conexión, sin volver a elegir impresora.
+  final Future<List<int>> Function()? construirCopia;
 
   @override
   State<ImpresoraScreen> createState() => _ImpresoraScreenState();
@@ -103,6 +108,10 @@ class _ImpresoraScreenState extends State<ImpresoraScreen> {
     List<int> bytes;
     try {
       bytes = await widget.construir();
+      final construirCopia = widget.construirCopia;
+      if (construirCopia != null && bytes.isNotEmpty) {
+        bytes = [...bytes, ...await construirCopia()];
+      }
     } catch (_) {
       bytes = const <int>[];
     }

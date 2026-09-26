@@ -58,10 +58,14 @@ class TicketBuilder {
     return '\$$buffer.${partes[1]}';
   }
 
-  Future<List<int>> ticket(DatosTicket datos) async {
+  /// Con [copia] el ticket lleva la leyenda "DUPLICADO" al inicio y al final,
+  /// para distinguirlo del original aunque el papel se corte mal.
+  Future<List<int>> ticket(DatosTicket datos, {bool copia = false}) async {
     final perfil = await CapabilityProfile.load();
     final g = Generator(_papel, perfil);
     final bytes = <int>[...g.reset()];
+
+    if (copia) bytes.addAll(_leyendaCopia(g));
 
     // ══════════════════════════════════════════
     // ENCABEZADO — Nombre de la empresa
@@ -270,10 +274,30 @@ class TicketBuilder {
       sanitizarTexto('Solicitar factura el día de su compra'),
       styles: const PosStyles(bold: true, align: PosAlign.center),
     ));
+    if (copia) {
+      bytes.addAll(g.feed(1));
+      bytes.addAll(_leyendaCopia(g));
+    }
     bytes.addAll(g.feed(3));
     bytes.addAll(g.cut());
 
     return bytes;
+  }
+
+  List<int> _leyendaCopia(Generator g) {
+    return [
+      ...g.text(_lineaDoble, styles: const PosStyles(align: PosAlign.center)),
+      ...g.text(
+        '*** DUPLICADO ***',
+        styles: const PosStyles(
+          bold: true,
+          align: PosAlign.center,
+          height: PosTextSize.size2,
+          width: PosTextSize.size2,
+        ),
+      ),
+      ...g.text(_lineaDoble, styles: const PosStyles(align: PosAlign.center)),
+    ];
   }
 
   Future<List<int>> etiqueta(EtiquetaBateria etiqueta) async {
