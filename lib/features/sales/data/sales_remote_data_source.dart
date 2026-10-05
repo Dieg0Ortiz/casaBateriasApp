@@ -43,6 +43,26 @@ class SalesRemoteDataSource {
     return VentaResultado.fromJson(res!);
   }
 
+  Future<Map<String, dynamic>> autorizarReimpresion({
+    required String folio,
+    required String motivo,
+    required String email,
+    required String password,
+  }) async {
+    final res = await _pedir<Map<String, dynamic>>(
+      () => _dio.post<Map<String, dynamic>>(
+        '/api/v1/sales/reimpresiones',
+        data: {
+          'folio': folio,
+          'motivo': motivo,
+          'email': email,
+          'password': password,
+        },
+      ),
+    );
+    return res ?? {};
+  }
+
   Map<String, dynamic> _itemAJson(LineaVenta linea) {
     return {
       'producto_id': linea.productoId,

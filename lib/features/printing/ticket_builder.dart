@@ -64,8 +64,13 @@ class TicketBuilder {
     final perfil = await CapabilityProfile.load();
     final g = Generator(_papel, perfil);
     final bytes = <int>[...g.reset()];
+    final reimpresion = datos.reimpresionNumero != null;
 
-    if (copia) bytes.addAll(_leyendaCopia(g));
+    if (reimpresion) {
+      bytes.addAll(_leyendaReimpresion(g, datos));
+    } else if (copia) {
+      bytes.addAll(_leyendaCopia(g));
+    }
 
     // ══════════════════════════════════════════
     // ENCABEZADO — Nombre de la empresa
@@ -274,7 +279,10 @@ class TicketBuilder {
       sanitizarTexto('Solicitar factura el día de su compra'),
       styles: const PosStyles(bold: true, align: PosAlign.center),
     ));
-    if (copia) {
+    if (reimpresion) {
+      bytes.addAll(g.feed(1));
+      bytes.addAll(_leyendaReimpresion(g, datos));
+    } else if (copia) {
       bytes.addAll(g.feed(1));
       bytes.addAll(_leyendaCopia(g));
     }
@@ -282,6 +290,39 @@ class TicketBuilder {
     bytes.addAll(g.cut());
 
     return bytes;
+  }
+
+  List<int> _leyendaReimpresion(Generator g, DatosTicket datos) {
+    final numero = datos.reimpresionNumero ?? 1;
+    return [
+      ...g.text(_lineaDoble, styles: const PosStyles(align: PosAlign.center)),
+      ...g.text(
+        '*** REIMPRESION ***',
+        styles: const PosStyles(
+          bold: true,
+          align: PosAlign.center,
+          height: PosTextSize.size2,
+          width: PosTextSize.size2,
+        ),
+      ),
+      ...g.text(
+        'NO ES UN TICKET NUEVO',
+        styles: const PosStyles(bold: true, align: PosAlign.center),
+      ),
+      ...g.text(
+        'Autorizo: ${sanitizarTexto(datos.reimpresionAutorizo ?? '')}',
+        styles: const PosStyles(align: PosAlign.center),
+      ),
+      ...g.text(
+        'Motivo: ${sanitizarTexto(datos.reimpresionMotivo ?? '')}',
+        styles: const PosStyles(align: PosAlign.center),
+      ),
+      ...g.text(
+        'Reimpresion $numero',
+        styles: const PosStyles(bold: true, align: PosAlign.center),
+      ),
+      ...g.text(_lineaDoble, styles: const PosStyles(align: PosAlign.center)),
+    ];
   }
 
   List<int> _leyendaCopia(Generator g) {

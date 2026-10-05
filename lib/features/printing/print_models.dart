@@ -43,6 +43,9 @@ class DatosTicket {
     this.propietario,
     this.direccionSucursal,
     this.metodoPago,
+    this.reimpresionNumero,
+    this.reimpresionAutorizo,
+    this.reimpresionMotivo,
   });
 
   final String encabezado;
@@ -64,6 +67,12 @@ class DatosTicket {
 
   /// Método de pago utilizado (Efectivo, Tarjeta, Crédito, etc.).
   final String? metodoPago;
+
+  /// Si viene informado, el papel es una reimpresión autorizada y no
+  /// un ticket nuevo ni el duplicado de caja.
+  final int? reimpresionNumero;
+  final String? reimpresionAutorizo;
+  final String? reimpresionMotivo;
 }
 
 /// Contenido de la etiqueta de código de barras de un producto.

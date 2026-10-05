@@ -8,6 +8,7 @@ import '../../cash/presentation/cash_viewmodel.dart';
 import '../../catalog/presentation/catalog_screen.dart';
 import '../../inventory/presentation/inventory_screen.dart';
 import '../../sales/presentation/pos_screen.dart';
+import '../../sales/presentation/reimpresion_screen.dart';
 import '../../purchases/presentation/purchases_screen.dart';
 import '../../cascos/presentation/intercambios_screen.dart';
 import '../../catalog/data/catalogo_remote_data_source.dart';
@@ -611,6 +612,29 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           ],
+          const SizedBox(height: 28),
+          Center(
+            child: TextButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const ReimpresionScreen()),
+                );
+              },
+              icon: Icon(Icons.lock_outline, size: 16, color: colors.onSurfaceVariant),
+              label: Text(
+                'Reimprimir ticket',
+                style: TextStyle(color: colors.onSurfaceVariant, fontSize: 13),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 28),
+            child: Text(
+              'Pide la clave de un administrador. El papel sale marcado y queda registrado.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 11, color: colors.onSurfaceVariant, height: 1.3),
+            ),
+          ),
         ],
       ),
     );

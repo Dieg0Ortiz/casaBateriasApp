@@ -196,4 +196,30 @@ void main() {
     expect(copia, contains('DUPLICADO'));
     expect(copia, contains('MT-20260925-000001'));
   });
+
+  test('reimpresion marca el papel y no lo presenta como original', () async {
+    final datos = DatosTicket(
+      encabezado: 'CASA BATERIAS',
+      sucursal: 'PLAN DE AYALA',
+      folio: 'NV-20261003-000177',
+      fecha: '03/10/2026 13:25',
+      lineas: const [
+        LineaTicket(marca: 'GONHER', modelo: '35', cantidad: 1, precio: 2100),
+      ],
+      total: 2100,
+      reimpresionNumero: 2,
+      reimpresionAutorizo: 'Administrador Prueba',
+      reimpresionMotivo: 'No imprimio la primera vez',
+    );
+
+    final texto = String.fromCharCodes(await builder.ticket(datos));
+
+    expect(texto, contains('REIMPRESION'));
+    expect(texto, contains('NO ES UN TICKET NUEVO'));
+    expect(texto, contains('Administrador Prueba'));
+    expect(texto, contains('No imprimio la primera vez'));
+    expect(texto, contains('Reimpresion 2'));
+    expect(texto, contains('NV-20261003-000177'));
+    expect(texto, isNot(contains('DUPLICADO')));
+  });
 }
