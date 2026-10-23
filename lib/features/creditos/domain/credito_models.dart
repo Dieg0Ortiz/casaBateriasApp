@@ -1,3 +1,24 @@
+/// Pilas de un modelo que una empresa tiene en ventas a crédito abiertas.
+class PiezasDeModelo {
+  const PiezasDeModelo({required this.cantidad, this.marca, this.modelo});
+
+  final String? marca;
+  final String? modelo;
+  final int cantidad;
+
+  String get producto => [marca, modelo]
+      .where((p) => p != null && p.trim().isNotEmpty)
+      .join(' ');
+
+  factory PiezasDeModelo.fromJson(Map<String, dynamic> json) {
+    return PiezasDeModelo(
+      marca: json['marca'] as String?,
+      modelo: json['modelo'] as String?,
+      cantidad: (json['cantidad'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
 class EmpresaCredito {
   const EmpresaCredito({
     required this.id,
@@ -12,6 +33,7 @@ class EmpresaCredito {
     this.activo = true,
     this.saldoDeudor = 0.0,
     this.totalBateriasDebidas = 0,
+    this.bateriasPorModelo = const [],
     this.tieneVencidas = false,
     this.ventasPendientesCount = 0,
   });
@@ -28,6 +50,9 @@ class EmpresaCredito {
   final bool activo;
   final double saldoDeudor;
   final int totalBateriasDebidas;
+
+  /// Las pilas a crédito sumadas por modelo, de la que más piezas tiene.
+  final List<PiezasDeModelo> bateriasPorModelo;
   final bool tieneVencidas;
   final int ventasPendientesCount;
 
@@ -45,6 +70,10 @@ class EmpresaCredito {
       activo: json['activo'] as bool? ?? true,
       saldoDeudor: (json['saldo_deudor'] as num?)?.toDouble() ?? 0.0,
       totalBateriasDebidas: (json['total_baterias_debidas'] as num?)?.toInt() ?? 0,
+      bateriasPorModelo: (json['baterias_por_modelo'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(PiezasDeModelo.fromJson)
+          .toList(),
       tieneVencidas: json['tiene_vencidas'] as bool? ?? false,
       ventasPendientesCount: (json['ventas_pendientes_count'] as num?)?.toInt() ?? 0,
     );

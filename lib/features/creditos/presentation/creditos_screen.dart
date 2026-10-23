@@ -448,6 +448,15 @@ class _CreditosScreenState extends State<CreditosScreen> with SingleTickerProvid
                     ),
                   ],
                 ),
+                if (emp.bateriasPorModelo.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    emp.bateriasPorModelo
+                        .map((m) => '${m.cantidad}× ${m.producto}')
+                        .join(' · '),
+                    style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
+                  ),
+                ],
                 const SizedBox(height: 12),
 
                 // Botones de acción

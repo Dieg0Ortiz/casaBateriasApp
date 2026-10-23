@@ -24,13 +24,14 @@ class CashViewModel extends ChangeNotifier {
   String? get mensajeError => _mensajeError;
   CorteCaja? get ultimoCierre => _ultimoCierre;
 
-  /// Carga la caja activa del cajero.
+  /// Carga la caja activa de la sucursal y el historial de cortes.
   Future<void> cargar() async {
     _cargando = true;
     _mensajeError = null;
     notifyListeners();
     try {
       _cajaActiva = await _repository.obtenerActiva();
+      await _cargarHistorial();
       _cargando = false;
       notifyListeners();
     } on ApiException catch (e) {
@@ -105,6 +106,10 @@ class CashViewModel extends ChangeNotifier {
       return false;
     }
   }
+
+  /// Resumen de un corte del historial, para verlo o reimprimirlo. Lanza
+  /// [ApiException] si el servidor lo rechaza.
+  Future<ResumenCorte> resumenDe(String corteId) => _repository.resumen(corteId);
 
   Future<void> _cargarHistorial() async {
     try {

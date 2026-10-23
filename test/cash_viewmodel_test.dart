@@ -78,6 +78,18 @@ class _FakeCashRepository implements CashRepository {
     activa = const CajaActiva(corte: null, totalVentas: 0, montoEsperado: 0);
     return corte;
   }
+
+  @override
+  Future<ResumenCorte> resumen(String corteId) async {
+    return ResumenCorte.fromJson({
+      'corte_id': corteId,
+      'estado': 'cerrado',
+      'sucursal': 'Matriz',
+      'efectivo': {'monto_inicial': 500, 'esperado': 800, 'contado': 820, 'diferencia': 20},
+      'electronico': {'total_tarjetas': 1500, 'total_transferencias': 600, 'total': 2100},
+      'creditos': {'ventas_count': 1, 'total': 3000, 'piezas': 2},
+    });
+  }
 }
 
 void main() {
@@ -174,6 +186,56 @@ void main() {
     expect(exito, isFalse);
     expect(vm.mensajeError, 'Monto inválido');
     expect(vm.cajaActiva!.tieneCajaAbierta, isTrue);
+  });
+
+  test('el resumen separa efectivo, electrónico y créditos', () async {
+    final vm = CashViewModel(_FakeCashRepository());
+
+    final r = await vm.resumenDe('c9');
+
+    expect(r.corteId, 'c9');
+    expect(r.cerrado, isTrue);
+    expect(r.efectivo.esperado, 800);
+    expect(r.efectivo.diferencia, 20);
+    expect(r.electronico.totalTarjetas, 1500);
+    expect(r.electronico.total, 2100);
+    expect(r.creditosTotal, 3000);
+    expect(r.creditosPiezas, 2);
+    expect(r.electronico.operaciones, isEmpty);
+  });
+
+  test('CajaActiva lee el resumen del servidor', () {
+    final activa = CajaActiva.fromJson({
+      'corte': {
+        'id': 'c1',
+        'sucursal_id': 's1',
+        'usuario_id': 'u1',
+        'monto_inicial': 500,
+        'estado': 'abierto',
+        'abierto_en': '2026-10-22T14:00:00Z',
+      },
+      'total_ventas': 3100,
+      'monto_esperado': 1500,
+      'resumen': {
+        'corte_id': 'c1',
+        'estado': 'abierto',
+        'sucursal': 'Matriz',
+        'efectivo': {'monto_inicial': 500, 'ventas': 1000, 'ventas_count': 1, 'esperado': 1500},
+        'electronico': {
+          'total': 2100,
+          'operaciones': [
+            {'folio': 'NV-MAT-000002', 'metodo': 'tarjeta_debito', 'monto': 2100, 'creado_en': '2026-10-22T15:00:00Z'},
+          ],
+        },
+        'creditos': {'ventas_count': 0, 'total': 0, 'piezas': 0, 'ventas': []},
+      },
+    });
+
+    expect(activa.tieneCajaAbierta, isTrue);
+    expect(activa.montoEsperado, 1500);
+    expect(activa.resumen, isNotNull);
+    expect(activa.resumen!.efectivo.contado, isNull);
+    expect(activa.resumen!.electronico.operaciones.single.folio, 'NV-MAT-000002');
   });
 
   test('historial se actualiza tras cerrar', () async {

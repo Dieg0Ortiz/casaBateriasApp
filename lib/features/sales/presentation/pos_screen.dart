@@ -23,7 +23,10 @@ import 'scan_screen.dart';
 /// Implementa el diseño "Ultramarine Industrial" con Hero action buttons,
 /// bento cards para líneas de venta, badges de casco interactivos y barra de cobro flotante.
 class PosScreen extends StatefulWidget {
-  const PosScreen({super.key});
+  const PosScreen({super.key, this.onIrACaja});
+
+  /// Lleva a la pestaña de Caja cuando hay que abrirla para poder cobrar.
+  final VoidCallback? onIrACaja;
 
   @override
   State<PosScreen> createState() => _PosScreenState();
@@ -471,20 +474,51 @@ class _PosScreenState extends State<PosScreen> {
       return;
     }
 
+    // Sin caja abierta no se cobra: la venta quedaría fuera de todos los
+    // cortes. Solo se permite la venta a crédito, que no entra a la caja.
+    // El trabajador vende en su sucursal y la app sabe si su caja está
+    // abierta; para el administrador en otra sucursal lo decide el servidor.
     final cashVm = context.read<CashViewModel>();
-    String? corteId;
-    if (cashVm.cajaActiva?.tieneCajaAbierta == true) {
-      corteId = cashVm.cajaActiva!.corte!.id;
-    } else {
-      final continuar = await _avisarSinCajaAbierta();
-      if (continuar != true || !mounted) return;
+    final esSuCaja =
+        sucursal == context.read<AuthViewModel>().usuario?.sucursalId;
+    var soloCredito = false;
+    if (esSuCaja && cashVm.cajaActiva?.tieneCajaAbierta != true) {
+      // Otro teléfono de la sucursal pudo haberla abierto mientras tanto.
+      await cashVm.cargar();
+      if (!mounted) return;
+    }
+    if (esSuCaja && cashVm.cajaActiva?.tieneCajaAbierta != true) {
+      final decision = await _avisarCajaCerrada();
+      if (!mounted ||
+          decision == null ||
+          decision == _DecisionCajaCerrada.cancelar) {
+        return;
+      }
+      if (decision == _DecisionCajaCerrada.abrirCaja) {
+        widget.onIrACaja?.call();
+        return;
+      }
+      soloCredito = true;
     }
 
     final resultadoPago = await _preguntarMetodoPago(vm.total);
     if (resultadoPago == null || !mounted) return;
+    if (soloCredito && resultadoPago.metodoPago != 'credito') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Con la caja cerrada solo se puede vender a crédito. Abre la caja para cobrar.',
+          ),
+          duration: Duration(seconds: 4),
+        ),
+      );
+      return;
+    }
 
     final lineasVendidas = List<LineaVenta>.from(vm.lineas);
 
+    // Informativo: el servidor liga la venta a la caja abierta de la sucursal.
+    final corteId = cashVm.cajaActiva?.corte?.id;
     final venta = await vm.registrar(
       sucursalId: sucursal,
       corteCajaId: corteId,
@@ -511,9 +545,8 @@ class _PosScreenState extends State<PosScreen> {
           .toList();
       _folioMostrado = false;
       await _cargarInventario();
-      if (corteId != null) {
-        await cashVm.cargar();
-      }
+      // El resumen del turno cambia (también con las ventas a crédito).
+      await cashVm.cargar();
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -538,8 +571,8 @@ class _PosScreenState extends State<PosScreen> {
     );
   }
 
-  Future<bool?> _avisarSinCajaAbierta() {
-    return showDialog<bool>(
+  Future<_DecisionCajaCerrada?> _avisarCajaCerrada() {
+    return showDialog<_DecisionCajaCerrada>(
       context: context,
       builder: (ctx) {
         final colorScheme = Theme.of(ctx).colorScheme;
@@ -561,34 +594,46 @@ class _PosScreenState extends State<PosScreen> {
                         color: Colors.amber.withValues(alpha: 0.15),
                         shape: BoxShape.circle,
                       ),
-                      child: const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 24),
+                      child: const Icon(Icons.lock_rounded, color: Colors.amber, size: 24),
                     ),
                     const SizedBox(width: 12),
-                    const Text(
-                      'Sin Caja Abierta',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                    const Expanded(
+                      child: Text(
+                        'La caja está cerrada',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                      ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 14),
                 Text(
-                  'La venta se registrará sin ligarse al corte del turno. '
-                  'Abre la caja antes de vender para que el total cuente en el '
-                  'monto esperado al cerrar.',
+                  'Para cobrar en efectivo, tarjeta o transferencia abre la caja '
+                  'primero, así la venta entra al corte del turno. Sin caja solo '
+                  'se puede registrar una venta a crédito.',
                   style: TextStyle(fontSize: 14, color: colorScheme.onSurfaceVariant, height: 1.35),
                 ),
                 const SizedBox(height: 24),
-                FilledButton(
-                  onPressed: () => Navigator.of(ctx).pop(true),
+                FilledButton.icon(
+                  onPressed: () => Navigator.of(ctx).pop(_DecisionCajaCerrada.abrirCaja),
                   style: FilledButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                   ),
-                  child: const Text('Vender sin caja', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+                  icon: const Icon(Icons.key_rounded, size: 18),
+                  label: const Text('Ir a abrir la caja', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
                 ),
                 const SizedBox(height: 8),
+                OutlinedButton(
+                  onPressed: () => Navigator.of(ctx).pop(_DecisionCajaCerrada.soloCredito),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                  child: const Text('Es venta a crédito', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                ),
+                const SizedBox(height: 4),
                 TextButton(
-                  onPressed: () => Navigator.of(ctx).pop(false),
+                  onPressed: () => Navigator.of(ctx).pop(_DecisionCajaCerrada.cancelar),
                   style: TextButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 10),
                     foregroundColor: colorScheme.onSurfaceVariant,
@@ -626,7 +671,7 @@ class _PosScreenState extends State<PosScreen> {
 
   Future<List<int>> _construirTicket(
     VentaResultado venta, {
-    bool copia = false,
+    required CopiaTicket copia,
   }) async {
     final fecha = formatFechaHora(venta.creadaEn);
     final ticket = DatosTicket(
@@ -900,7 +945,7 @@ class _PosScreenState extends State<PosScreen> {
                     child: OutlinedButton.icon(
                       icon: const Icon(Icons.print_rounded, size: 20),
                       label: const Text(
-                        'Imprimir ticket y copia',
+                        'Imprimir ticket (cliente y comercio)',
                         style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
                       ),
                       style: OutlinedButton.styleFrom(
@@ -909,15 +954,13 @@ class _PosScreenState extends State<PosScreen> {
                       ),
                       onPressed: () {
                         Navigator.of(ctx).pop();
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => ImpresoraScreen(
-                              titulo: 'ticket y copia',
-                              construir: () => _construirTicket(venta),
-                              construirCopia: () =>
-                                  _construirTicket(venta, copia: true),
-                            ),
-                          ),
+                        imprimirDocumento(
+                          context,
+                          titulo: 'el ticket ${venta.folio}',
+                          construir: () =>
+                              _construirTicket(venta, copia: CopiaTicket.cliente),
+                          construirCopia: () =>
+                              _construirTicket(venta, copia: CopiaTicket.comercio),
                         );
                       },
                     ),
@@ -2254,6 +2297,9 @@ class _BloqueoDispositivo extends StatelessWidget {
     );
   }
 }
+
+/// Qué hacer cuando se quiere cobrar con la caja cerrada.
+enum _DecisionCajaCerrada { abrirCaja, soloCredito, cancelar }
 
 /// Resultado de la selección en el modal de cobro
 class _ResultadoPago {

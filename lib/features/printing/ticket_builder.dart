@@ -45,9 +45,13 @@ class TicketBuilder {
     return buffer.toString();
   }
 
-  /// Formatea un monto como "$1,234.50" sin depender de intl.
+  /// Formatea un monto como "$1,234.50" sin depender de intl. Los negativos
+  /// (un faltante de caja) salen como "-$123.00".
   static String moneda(double valor) {
-    final fijo = valor.toStringAsFixed(2);
+    if (valor < 0 && valor.toStringAsFixed(2) != '-0.00') {
+      return '-${moneda(-valor)}';
+    }
+    final fijo = valor.abs().toStringAsFixed(2);
     final partes = fijo.split('.');
     final entero = partes[0];
     final buffer = StringBuffer();
@@ -58,9 +62,10 @@ class TicketBuilder {
     return '\$$buffer.${partes[1]}';
   }
 
-  /// Con [copia] el ticket lleva la leyenda "DUPLICADO" al inicio y al final,
-  /// para distinguirlo del original aunque el papel se corte mal.
-  Future<List<int>> ticket(DatosTicket datos, {bool copia = false}) async {
+  /// Con [copia] el ticket lleva al final, en un solo renglón, para quién es
+  /// ese papel: CLIENTE o COMERCIO (como los vouchers del banco). Sin [copia]
+  /// no lleva leyenda.
+  Future<List<int>> ticket(DatosTicket datos, {CopiaTicket? copia}) async {
     final perfil = await CapabilityProfile.load();
     final g = Generator(_papel, perfil);
     final bytes = <int>[...g.reset()];
@@ -68,68 +73,16 @@ class TicketBuilder {
 
     if (reimpresion) {
       bytes.addAll(_leyendaReimpresion(g, datos));
-    } else if (copia) {
-      bytes.addAll(_leyendaCopia(g));
     }
 
-    // ══════════════════════════════════════════
-    // ENCABEZADO — Nombre de la empresa
-    // ══════════════════════════════════════════
-    bytes.addAll(g.text(
-      _lineaDoble,
-      styles: const PosStyles(align: PosAlign.center),
+    bytes.addAll(_encabezadoNegocio(
+      g,
+      encabezado: datos.encabezado,
+      propietario: datos.propietario,
+      rfc: datos.rfc,
+      sucursal: datos.sucursal,
+      direccion: datos.direccionSucursal,
     ));
-    bytes.addAll(g.text(
-      sanitizarTexto(datos.encabezado),
-      styles: const PosStyles(
-        bold: true,
-        align: PosAlign.center,
-        height: PosTextSize.size2,
-        width: PosTextSize.size2,
-      ),
-    ));
-    bytes.addAll(g.text(
-      _lineaDoble,
-      styles: const PosStyles(align: PosAlign.center),
-    ));
-
-    // ══════════════════════════════════════════
-    // DATOS DEL PROPIETARIO
-    // ══════════════════════════════════════════
-    final direccion = datos.direccionSucursal ?? '';
-
-    if (datos.propietario != null && datos.propietario!.isNotEmpty) {
-      bytes.addAll(g.text(
-        sanitizarTexto(datos.propietario!),
-        styles: const PosStyles(align: PosAlign.center),
-      ));
-    }
-    if (datos.rfc != null && datos.rfc!.isNotEmpty) {
-      bytes.addAll(g.text(
-        'R.F.C. ${sanitizarTexto(datos.rfc!)}',
-        styles: const PosStyles(align: PosAlign.center),
-      ));
-    }
-
-    // ══════════════════════════════════════════
-    // DATOS DE LA SUCURSAL
-    // ══════════════════════════════════════════
-    bytes.addAll(g.text(_linea, styles: const PosStyles(align: PosAlign.center)));
-    bytes.addAll(g.text(
-      'Sucursal: ${sanitizarTexto(datos.sucursal)}',
-      styles: const PosStyles(bold: true, align: PosAlign.center),
-    ));
-    final dirLimpia = limpiarDireccion(direccion);
-    if (dirLimpia.isNotEmpty) {
-      // Dividir dirección larga en líneas de ~32 caracteres para 58mm
-      final lineasDir = _dividirTexto(sanitizarTexto(dirLimpia), 32);
-      for (final ld in lineasDir) {
-        bytes.addAll(g.text(
-          ld,
-          styles: const PosStyles(align: PosAlign.center),
-        ));
-      }
-    }
 
     // ══════════════════════════════════════════
     // DATOS DE LA VENTA
@@ -282,13 +235,286 @@ class TicketBuilder {
     if (reimpresion) {
       bytes.addAll(g.feed(1));
       bytes.addAll(_leyendaReimpresion(g, datos));
-    } else if (copia) {
-      bytes.addAll(g.feed(1));
-      bytes.addAll(_leyendaCopia(g));
+    } else if (copia != null) {
+      bytes.addAll(_leyendaCopia(g, copia));
     }
     bytes.addAll(g.feed(3));
     bytes.addAll(g.cut());
 
+    return bytes;
+  }
+
+  /// Nombre del negocio, propietario, R.F.C. y datos de la sucursal.
+  List<int> _encabezadoNegocio(
+    Generator g, {
+    required String encabezado,
+    required String sucursal,
+    String? propietario,
+    String? rfc,
+    String? direccion,
+  }) {
+    final bytes = <int>[];
+
+    // ══════════════════════════════════════════
+    // ENCABEZADO — Nombre de la empresa
+    // ══════════════════════════════════════════
+    bytes.addAll(g.text(
+      _lineaDoble,
+      styles: const PosStyles(align: PosAlign.center),
+    ));
+    bytes.addAll(g.text(
+      sanitizarTexto(encabezado),
+      styles: const PosStyles(
+        bold: true,
+        align: PosAlign.center,
+        height: PosTextSize.size2,
+        width: PosTextSize.size2,
+      ),
+    ));
+    bytes.addAll(g.text(
+      _lineaDoble,
+      styles: const PosStyles(align: PosAlign.center),
+    ));
+
+    // ══════════════════════════════════════════
+    // DATOS DEL PROPIETARIO
+    // ══════════════════════════════════════════
+    if (propietario != null && propietario.isNotEmpty) {
+      bytes.addAll(g.text(
+        sanitizarTexto(propietario),
+        styles: const PosStyles(align: PosAlign.center),
+      ));
+    }
+    if (rfc != null && rfc.isNotEmpty) {
+      bytes.addAll(g.text(
+        'R.F.C. ${sanitizarTexto(rfc)}',
+        styles: const PosStyles(align: PosAlign.center),
+      ));
+    }
+
+    // ══════════════════════════════════════════
+    // DATOS DE LA SUCURSAL
+    // ══════════════════════════════════════════
+    bytes.addAll(g.text(_linea, styles: const PosStyles(align: PosAlign.center)));
+    bytes.addAll(g.text(
+      'Sucursal: ${sanitizarTexto(sucursal)}',
+      styles: const PosStyles(bold: true, align: PosAlign.center),
+    ));
+    final dirLimpia = limpiarDireccion(direccion ?? '');
+    if (dirLimpia.isNotEmpty) {
+      // Dividir dirección larga en líneas de ~32 caracteres para 58mm
+      final lineasDir = _dividirTexto(sanitizarTexto(dirLimpia), 32);
+      for (final ld in lineasDir) {
+        bytes.addAll(g.text(
+          ld,
+          styles: const PosStyles(align: PosAlign.center),
+        ));
+      }
+    }
+    return bytes;
+  }
+
+  /// Corte de caja: uno por papel (efectivo, o tarjetas y transferencias).
+  Future<List<int>> corte(DatosCorteTicket datos) async {
+    final perfil = await CapabilityProfile.load();
+    final g = Generator(_papel, perfil);
+    final bytes = <int>[...g.reset()];
+
+    bytes.addAll(g.text(_lineaDoble, styles: const PosStyles(align: PosAlign.center)));
+    bytes.addAll(g.text(
+      'CASA BATERIAS',
+      styles: const PosStyles(bold: true, align: PosAlign.center),
+    ));
+    bytes.addAll(g.text(
+      sanitizarTexto(datos.titulo),
+      styles: const PosStyles(
+        bold: true,
+        align: PosAlign.center,
+        height: PosTextSize.size2,
+      ),
+    ));
+    bytes.addAll(g.text(_lineaDoble, styles: const PosStyles(align: PosAlign.center)));
+    bytes.addAll(g.text('Sucursal: ${sanitizarTexto(datos.sucursal)}'));
+    bytes.addAll(g.text('Apertura: ${sanitizarTexto(datos.apertura)}'));
+    if (datos.abrio != null && datos.abrio!.isNotEmpty) {
+      bytes.addAll(g.text('Abrio: ${sanitizarTexto(datos.abrio!)}'));
+    }
+    if (datos.cierre != null) {
+      bytes.addAll(g.text('Cierre: ${sanitizarTexto(datos.cierre!)}'));
+      if (datos.cerro != null && datos.cerro!.isNotEmpty) {
+        bytes.addAll(g.text('Cerro: ${sanitizarTexto(datos.cerro!)}'));
+      }
+    } else {
+      bytes.addAll(g.text(
+        'CORTE PARCIAL (caja abierta)',
+        styles: const PosStyles(bold: true),
+      ));
+    }
+    bytes.addAll(g.text(_linea));
+
+    for (final r in datos.renglones) {
+      if (r.destacado) bytes.addAll(g.text(_linea));
+      bytes.addAll(_renglonImporte(g, r.concepto, r.monto, negritas: r.destacado));
+    }
+
+    if (datos.operaciones.isNotEmpty) {
+      bytes.addAll(g.text(_lineaDoble, styles: const PosStyles(align: PosAlign.center)));
+      bytes.addAll(g.text(
+        'OPERACIONES',
+        styles: const PosStyles(bold: true, align: PosAlign.center),
+      ));
+      for (final o in datos.operaciones) {
+        bytes.addAll(_renglonImporte(g, '${o.hora} ${o.descripcion}', o.monto));
+      }
+    }
+
+    bytes.addAll(g.text(_lineaDoble, styles: const PosStyles(align: PosAlign.center)));
+    if (datos.nota != null && datos.nota!.isNotEmpty) {
+      for (final l in _dividirTexto(sanitizarTexto(datos.nota!), 32)) {
+        bytes.addAll(g.text(l, styles: const PosStyles(align: PosAlign.center)));
+      }
+    }
+    if (datos.conFirmas) {
+      bytes.addAll(_renglonFirma(g, 'Entrego'));
+      bytes.addAll(_renglonFirma(g, 'Recibio'));
+    }
+    bytes.addAll(g.feed(3));
+    bytes.addAll(g.cut());
+    return bytes;
+  }
+
+  /// Ticket de una devolución de dinero (folio DEV). La copia del comercio
+  /// lleva renglón de firma del cliente: es su acuse de que recibió el dinero.
+  Future<List<int>> devolucion(
+    DatosDevolucionTicket datos, {
+    CopiaTicket? copia,
+  }) async {
+    final perfil = await CapabilityProfile.load();
+    final g = Generator(_papel, perfil);
+    final bytes = <int>[...g.reset()];
+
+    bytes.addAll(_encabezadoNegocio(
+      g,
+      encabezado: datos.encabezado,
+      propietario: datos.propietario,
+      rfc: datos.rfc,
+      sucursal: datos.sucursal,
+      direccion: datos.direccionSucursal,
+    ));
+
+    bytes.addAll(g.text(_lineaDoble, styles: const PosStyles(align: PosAlign.center)));
+    bytes.addAll(g.text(
+      'DEVOLUCION',
+      styles: const PosStyles(
+        bold: true,
+        align: PosAlign.center,
+        height: PosTextSize.size2,
+        width: PosTextSize.size2,
+      ),
+    ));
+    bytes.addAll(g.text(
+      sanitizarTexto(datos.tipo),
+      styles: const PosStyles(align: PosAlign.center),
+    ));
+    bytes.addAll(g.text(_linea));
+    bytes.addAll(g.text(
+      'Folio: ${sanitizarTexto(datos.folio)}',
+      styles: const PosStyles(bold: true),
+    ));
+    bytes.addAll(g.text('Fecha: ${sanitizarTexto(datos.fecha)}'));
+    bytes.addAll(g.text('Venta: ${sanitizarTexto(datos.ventaFolio)}'));
+    if (datos.cliente != null && datos.cliente!.isNotEmpty) {
+      bytes.addAll(g.text('Cliente: ${sanitizarTexto(datos.cliente!)}'));
+    }
+    if (datos.atendio != null && datos.atendio!.isNotEmpty) {
+      bytes.addAll(g.text('Atendio: ${sanitizarTexto(datos.atendio!)}'));
+    }
+    if (datos.autorizo != null && datos.autorizo!.isNotEmpty) {
+      bytes.addAll(g.text('Autorizo: ${sanitizarTexto(datos.autorizo!)}'));
+    }
+
+    if (datos.lineas.isNotEmpty) {
+      bytes.addAll(g.text(_lineaDoble, styles: const PosStyles(align: PosAlign.center)));
+      for (final l in datos.lineas) {
+        bytes.addAll(_renglonImporte(g, '${l.cantidad} ${l.descripcion}', l.monto));
+      }
+    }
+
+    bytes.addAll(g.text(_lineaDoble, styles: const PosStyles(align: PosAlign.center)));
+    bytes.addAll(g.row([
+      PosColumn(
+        text: 'DEVUELTO',
+        width: 6,
+        styles: const PosStyles(bold: true, height: PosTextSize.size2),
+      ),
+      PosColumn(
+        text: moneda(datos.monto),
+        width: 6,
+        styles: const PosStyles(
+          bold: true,
+          align: PosAlign.right,
+          height: PosTextSize.size2,
+        ),
+      ),
+    ]));
+    bytes.addAll(g.text('Forma: ${sanitizarTexto(datos.metodo)}'));
+    for (final l in _dividirTexto('Motivo: ${sanitizarTexto(datos.motivo)}', 32)) {
+      bytes.addAll(g.text(l));
+    }
+
+    if (copia == CopiaTicket.comercio) {
+      bytes.addAll(_renglonFirma(g, 'Recibi de conformidad'));
+    }
+    bytes.addAll(g.text(_lineaDoble, styles: const PosStyles(align: PosAlign.center)));
+    if (copia != null) {
+      bytes.addAll(_leyendaCopia(g, copia));
+    }
+    bytes.addAll(g.feed(3));
+    bytes.addAll(g.cut());
+    return bytes;
+  }
+
+  /// Espacio para firmar, la línea y debajo quién firma.
+  List<int> _renglonFirma(Generator g, String leyenda) {
+    return [
+      ...g.feed(3),
+      ...g.text(
+        '______________________________',
+        styles: const PosStyles(align: PosAlign.center),
+      ),
+      ...g.text(
+        sanitizarTexto(leyenda),
+        styles: const PosStyles(align: PosAlign.center),
+      ),
+    ];
+  }
+
+  /// Concepto a la izquierda e importe a la derecha; si el concepto es
+  /// largo, sigue en los renglones de abajo.
+  List<int> _renglonImporte(
+    Generator g,
+    String concepto,
+    double monto, {
+    bool negritas = false,
+  }) {
+    final partes = _dividirTexto(sanitizarTexto(concepto), 20);
+    final bytes = <int>[
+      ...g.row([
+        PosColumn(
+          text: partes.isEmpty ? '' : partes.first,
+          width: 8,
+          styles: PosStyles(bold: negritas),
+        ),
+        PosColumn(
+          text: moneda(monto),
+          width: 4,
+          styles: PosStyles(bold: negritas, align: PosAlign.right),
+        ),
+      ]),
+    ];
+    for (final resto in partes.skip(1)) {
+      bytes.addAll(g.text('  $resto', styles: PosStyles(bold: negritas)));
+    }
     return bytes;
   }
 
@@ -325,20 +551,11 @@ class TicketBuilder {
     ];
   }
 
-  List<int> _leyendaCopia(Generator g) {
-    return [
-      ...g.text(_lineaDoble, styles: const PosStyles(align: PosAlign.center)),
-      ...g.text(
-        '*** DUPLICADO ***',
-        styles: const PosStyles(
-          bold: true,
-          align: PosAlign.center,
-          height: PosTextSize.size2,
-          width: PosTextSize.size2,
-        ),
-      ),
-      ...g.text(_lineaDoble, styles: const PosStyles(align: PosAlign.center)),
-    ];
+  List<int> _leyendaCopia(Generator g, CopiaTicket copia) {
+    return g.text(
+      copia.leyenda,
+      styles: const PosStyles(bold: true, align: PosAlign.center),
+    );
   }
 
   Future<List<int>> etiqueta(EtiquetaBateria etiqueta) async {

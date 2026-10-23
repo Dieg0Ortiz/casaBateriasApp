@@ -7,8 +7,10 @@ import '../../cash/presentation/cash_screen.dart';
 import '../../cash/presentation/cash_viewmodel.dart';
 import '../../catalog/presentation/catalog_screen.dart';
 import '../../inventory/presentation/inventory_screen.dart';
+import '../../sales/presentation/cancelacion_screen.dart';
 import '../../sales/presentation/pos_screen.dart';
 import '../../sales/presentation/reimpresion_screen.dart';
+import '../../devoluciones/presentation/devoluciones_screen.dart';
 import '../../purchases/presentation/purchases_screen.dart';
 import '../../cascos/presentation/intercambios_screen.dart';
 import '../../catalog/data/catalogo_remote_data_source.dart';
@@ -86,7 +88,7 @@ class _HomeScreenState extends State<HomeScreen> {
         index: _tabSeleccionado,
         children: [
           _buildDashboard(context),
-          const PosScreen(),
+          PosScreen(onIrACaja: () => _cambiarTab(2)),
           const CashScreen(),
           const CatalogScreen(),
           const InventoryScreen(),
@@ -500,6 +502,40 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
 
+          const SizedBox(height: 12),
+          Card(
+            color: const Color(0xFFDC2626).withValues(alpha: 0.06),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(color: const Color(0xFFDC2626).withValues(alpha: 0.22)),
+            ),
+            child: ListTile(
+              leading: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFDC2626).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.assignment_return_rounded, color: Color(0xFFDC2626)),
+              ),
+              title: const Text(
+                'Devoluciones',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+              subtitle: const Text(
+                'Depósito de casco o batería devuelta, con folio DEV',
+                style: TextStyle(fontSize: 12),
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const DevolucionesScreen()),
+                );
+              },
+            ),
+          ),
+
           if (usuario?.esAdministrador == true) ...[
             const SizedBox(height: 12),
             Card(
@@ -613,24 +649,40 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ],
           const SizedBox(height: 28),
-          Center(
-            child: TextButton.icon(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const ReimpresionScreen()),
-                );
-              },
-              icon: Icon(Icons.lock_outline, size: 16, color: colors.onSurfaceVariant),
-              label: Text(
-                'Reimprimir ticket',
-                style: TextStyle(color: colors.onSurfaceVariant, fontSize: 13),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 4,
+            children: [
+              TextButton.icon(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const ReimpresionScreen()),
+                  );
+                },
+                icon: Icon(Icons.lock_outline, size: 16, color: colors.onSurfaceVariant),
+                label: Text(
+                  'Reimprimir ticket',
+                  style: TextStyle(color: colors.onSurfaceVariant, fontSize: 13),
+                ),
               ),
-            ),
+              TextButton.icon(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const CancelacionScreen()),
+                  );
+                },
+                icon: Icon(Icons.block_rounded, size: 16, color: colors.onSurfaceVariant),
+                label: Text(
+                  'Cancelar ticket',
+                  style: TextStyle(color: colors.onSurfaceVariant, fontSize: 13),
+                ),
+              ),
+            ],
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 28),
             child: Text(
-              'Pide la clave de un administrador. El papel sale marcado y queda registrado.',
+              'Piden la clave de un administrador y quedan registrados.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 11, color: colors.onSurfaceVariant, height: 1.3),
             ),

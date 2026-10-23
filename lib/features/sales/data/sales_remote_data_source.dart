@@ -63,6 +63,29 @@ class SalesRemoteDataSource {
     return res ?? {};
   }
 
+  /// Cancela un ticket con la clave de un administrador. El servidor
+  /// regresa las piezas al inventario y saca la venta del corte; solo se
+  /// puede mientras el corte de esa venta siga abierto.
+  Future<Map<String, dynamic>> cancelarTicket({
+    required String folio,
+    required String motivo,
+    required String email,
+    required String password,
+  }) async {
+    final res = await _pedir<Map<String, dynamic>>(
+      () => _dio.post<Map<String, dynamic>>(
+        '/api/v1/sales/cancelaciones',
+        data: {
+          'folio': folio,
+          'motivo': motivo,
+          'email': email,
+          'password': password,
+        },
+      ),
+    );
+    return res ?? {};
+  }
+
   Map<String, dynamic> _itemAJson(LineaVenta linea) {
     return {
       'producto_id': linea.productoId,

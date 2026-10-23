@@ -13,6 +13,9 @@ void main() {
     expect(TicketBuilder.moneda(1), r'$1.00');
     expect(TicketBuilder.moneda(1234567.5), r'$1,234,567.50');
     expect(TicketBuilder.moneda(0), r'$0.00');
+    expect(TicketBuilder.moneda(-123), r'-$123.00');
+    expect(TicketBuilder.moneda(-1234.5), r'-$1,234.50');
+    expect(TicketBuilder.moneda(-0.001), r'$0.00');
   });
 
   test('sanitizarTexto remueve acentos, diéresis, eñes y signos invertidos', () {
@@ -177,11 +180,11 @@ void main() {
     expect(textoCompleto, contains('Solicitar factura el dia de su compra'));
   });
 
-  test('ticket duplicado lleva la leyenda DUPLICADO y el original no', () async {
+  test('cada copia dice para quién es, en un renglón y sin DUPLICADO', () async {
     final datos = DatosTicket(
       encabezado: 'CASA BATERIAS',
       sucursal: 'Matriz',
-      folio: 'MT-20260925-000001',
+      folio: 'NV-MAT-000001',
       fecha: '25/09/2026 12:00',
       lineas: const [
         LineaTicket(modelo: 'GONHER 47', cantidad: 1, precio: 2100),
@@ -189,12 +192,101 @@ void main() {
       total: 2100,
     );
 
-    final original = String.fromCharCodes(await builder.ticket(datos));
-    final copia = String.fromCharCodes(await builder.ticket(datos, copia: true));
+    final sinLeyenda = await builder.ticket(datos);
+    final cliente = await builder.ticket(datos, copia: CopiaTicket.cliente);
+    final comercio = await builder.ticket(datos, copia: CopiaTicket.comercio);
+    final textoCliente = String.fromCharCodes(cliente);
+    final textoComercio = String.fromCharCodes(comercio);
 
-    expect(original, isNot(contains('DUPLICADO')));
-    expect(copia, contains('DUPLICADO'));
-    expect(copia, contains('MT-20260925-000001'));
+    expect(textoCliente, contains('CLIENTE'));
+    expect(textoCliente, isNot(contains('COMERCIO')));
+    expect(textoComercio, contains('COMERCIO'));
+    expect(textoComercio, contains('NV-MAT-000001'));
+    expect(textoCliente, isNot(contains('DUPLICADO')));
+    expect(textoComercio, isNot(contains('DUPLICADO')));
+    // La leyenda ocupa un solo renglón: el papel apenas crece.
+    expect(comercio.length - sinLeyenda.length, lessThan(40));
+  });
+
+  test('corte de caja imprime sus renglones y las firmas', () async {
+    final bytes = await builder.corte(
+      const DatosCorteTicket(
+        titulo: 'CORTE DE EFECTIVO',
+        sucursal: 'Matriz',
+        apertura: '22/10/2026 08:00',
+        cierre: '22/10/2026 20:00',
+        abrio: 'Daniel',
+        renglones: [
+          RenglonCorte('Fondo inicial', 500),
+          RenglonCorte('(+) Ventas efectivo (3)', 6450),
+          RenglonCorte('EFECTIVO ESPERADO', 6950, destacado: true),
+          RenglonCorte('Faltante', -50, destacado: true),
+        ],
+        nota: 'No incluye tarjetas, transferencias ni ventas a credito.',
+        conFirmas: true,
+      ),
+    );
+    final texto = String.fromCharCodes(bytes);
+
+    expect(texto, contains('CORTE DE EFECTIVO'));
+    expect(texto, contains('Fondo inicial'));
+    expect(texto, contains('6,950.00'));
+    expect(texto, contains('Faltante'));
+    expect(texto, contains('Entrego'));
+    expect(texto, contains('Recibio'));
+    expect(bytes.sublist(bytes.length - 3), [0x1D, 0x56, 0x30]);
+  });
+
+  test('corte sin cierre se marca como parcial', () async {
+    final texto = String.fromCharCodes(await builder.corte(
+      const DatosCorteTicket(
+        titulo: 'CORTE TARJETAS Y TRANSF.',
+        sucursal: 'Norte',
+        apertura: '22/10/2026 08:00',
+        renglones: [RenglonCorte('TOTAL DEL CORTE', 2100, destacado: true)],
+        operaciones: [
+          OperacionCorte(hora: '10:15', descripcion: 'NV-NOR-000004 Debito', monto: 2100),
+        ],
+      ),
+    ));
+
+    expect(texto, contains('CORTE PARCIAL'));
+    expect(texto, contains('NV-NOR-000004'));
+    expect(texto, isNot(contains('Entrego')));
+  });
+
+  test('devolución: folio DEV y firma solo en la copia del comercio', () async {
+    const datos = DatosDevolucionTicket(
+      encabezado: 'CASA BATERIAS',
+      folio: 'DEV-MAT-000001',
+      fecha: '22/10/2026 12:00',
+      sucursal: 'Matriz',
+      tipo: 'Devolucion de deposito de casco',
+      ventaFolio: 'NV-MAT-000120',
+      lineas: [
+        LineaDevolucionTicket(descripcion: 'Casco LTH L-42', cantidad: 1, monto: 450),
+      ],
+      monto: 450,
+      metodo: 'Efectivo',
+      motivo: 'Trajo el casco',
+      atendio: 'Daniel',
+    );
+
+    final cliente = String.fromCharCodes(
+      await builder.devolucion(datos, copia: CopiaTicket.cliente),
+    );
+    final comercio = String.fromCharCodes(
+      await builder.devolucion(datos, copia: CopiaTicket.comercio),
+    );
+
+    expect(cliente, contains('DEVOLUCION'));
+    expect(cliente, contains('DEV-MAT-000001'));
+    expect(cliente, contains('NV-MAT-000120'));
+    expect(cliente, contains('450.00'));
+    expect(cliente, contains('CLIENTE'));
+    expect(cliente, isNot(contains('Recibi de conformidad')));
+    expect(comercio, contains('Recibi de conformidad'));
+    expect(comercio, contains('COMERCIO'));
   });
 
   test('reimpresion marca el papel y no lo presenta como original', () async {
@@ -220,6 +312,6 @@ void main() {
     expect(texto, contains('No imprimio la primera vez'));
     expect(texto, contains('Reimpresion 2'));
     expect(texto, contains('NV-20261003-000177'));
-    expect(texto, isNot(contains('DUPLICADO')));
+    expect(texto, isNot(contains('COMERCIO')));
   });
 }

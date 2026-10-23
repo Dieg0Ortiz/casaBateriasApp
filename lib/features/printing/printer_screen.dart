@@ -3,8 +3,102 @@ import 'package:flutter/material.dart';
 
 import 'printer_service.dart';
 
+/// Arma los bytes del documento y, si la hay, de su segunda copia.
+Future<List<int>> _armarDocumento(
+  Future<List<int>> Function() construir,
+  Future<List<int>> Function()? construirCopia,
+) async {
+  try {
+    final bytes = await construir();
+    if (construirCopia == null || bytes.isEmpty) return bytes;
+    return [...bytes, ...await construirCopia()];
+  } catch (_) {
+    return const <int>[];
+  }
+}
+
+/// Imprime directo en la impresora guardada, sin escanear ni elegir. Solo
+/// abre la pantalla para elegir impresora si no hay una guardada o si la
+/// guardada no responde (apagada, sin papel, fuera de alcance).
+Future<void> imprimirDocumento(
+  BuildContext context, {
+  required String titulo,
+  required Future<List<int>> Function() construir,
+  Future<List<int>> Function()? construirCopia,
+}) async {
+  final servicio = PrinterService.instance;
+  final guardada = await servicio.impresoraGuardada();
+  if (!context.mounted) return;
+
+  if (guardada != null) {
+    final nombre = guardada.name.isEmpty ? 'la impresora' : guardada.name;
+    final navigator = Navigator.of(context, rootNavigator: true);
+    final mensajero = ScaffoldMessenger.of(context);
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      useRootNavigator: true,
+      builder: (_) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          content: Row(
+            children: [
+              const SizedBox(
+                width: 26,
+                height: 26,
+                child: CircularProgressIndicator(strokeWidth: 3),
+              ),
+              const SizedBox(width: 16),
+              Expanded(child: Text('Imprimiendo $titulo en $nombre…')),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    var impreso = false;
+    try {
+      final bytes = await _armarDocumento(construir, construirCopia);
+      impreso = await servicio.imprimir(
+        guardada,
+        bytes,
+        timeout: const Duration(seconds: 12),
+      );
+    } finally {
+      navigator.pop();
+    }
+
+    if (impreso) {
+      mensajero.showSnackBar(
+        SnackBar(content: Text('Listo: se imprimió en $nombre')),
+      );
+      return;
+    }
+    mensajero.showSnackBar(
+      SnackBar(
+        content: Text(
+          'No respondió $nombre. Revisa que esté encendida y con papel, o elige otra.',
+        ),
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
+  if (!context.mounted) return;
+  await Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => ImpresoraScreen(
+        titulo: titulo,
+        construir: construir,
+        construirCopia: construirCopia,
+      ),
+    ),
+  );
+}
+
 /// Pantalla para imprimir en una impresora térmica Bluetooth (Fase 9).
-/// Implementa el diseño "Ultramarine Industrial".
+/// La impresora con la que se imprime bien queda guardada para las
+/// siguientes impresiones. Implementa el diseño "Ultramarine Industrial".
 class ImpresoraScreen extends StatefulWidget {
   const ImpresoraScreen({
     super.key,
@@ -19,8 +113,8 @@ class ImpresoraScreen extends StatefulWidget {
   /// Genera los bytes ESC/POS del documento a imprimir.
   final Future<List<int>> Function() construir;
 
-  /// Si se informa, se imprime un segundo ticket marcado como duplicado
-  /// en la misma conexión, sin volver a elegir impresora.
+  /// Si se informa, se imprime un segundo papel (la copia del comercio) en
+  /// la misma conexión, sin volver a elegir impresora.
   final Future<List<int>> Function()? construirCopia;
 
   @override
@@ -36,11 +130,23 @@ class _ImpresoraScreenState extends State<ImpresoraScreen> {
   String? _mensaje;
   List<BluetoothDevice> _dispositivos = [];
   BluetoothDevice? _seleccionado;
+  BluetoothDevice? _guardada;
 
   @override
   void initState() {
     super.initState();
+    _cargarGuardada();
     _iniciar();
+  }
+
+  Future<void> _cargarGuardada() async {
+    final guardada = await _servicio.impresoraGuardada();
+    if (mounted) setState(() => _guardada = guardada);
+  }
+
+  Future<void> _olvidarGuardada() async {
+    await _servicio.olvidarImpresora();
+    if (mounted) setState(() => _guardada = null);
   }
 
   Future<void> _iniciar() async {
@@ -105,19 +211,14 @@ class _ImpresoraScreenState extends State<ImpresoraScreen> {
       _imprimiendo = true;
     });
 
-    List<int> bytes;
-    try {
-      bytes = await widget.construir();
-      final construirCopia = widget.construirCopia;
-      if (construirCopia != null && bytes.isNotEmpty) {
-        bytes = [...bytes, ...await construirCopia()];
-      }
-    } catch (_) {
-      bytes = const <int>[];
-    }
+    final bytes = await _armarDocumento(widget.construir, widget.construirCopia);
 
     final ok = bytes.isNotEmpty && await _servicio.escribir(bytes);
     await _servicio.desconectar();
+    if (ok) {
+      // Los siguientes tickets salen directo a esta impresora.
+      await _servicio.guardarImpresora(dispositivo);
+    }
     if (!mounted) return;
 
     setState(() => _imprimiendo = false);
@@ -175,6 +276,25 @@ class _ImpresoraScreenState extends State<ImpresoraScreen> {
             ),
           ),
           const SizedBox(height: 14),
+          if (_guardada != null)
+            Card(
+              margin: const EdgeInsets.only(bottom: 14),
+              child: ListTile(
+                leading: Icon(Icons.star_rounded, color: colors.primary),
+                title: Text(
+                  _guardada!.name.isEmpty ? 'Impresora guardada' : _guardada!.name,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                subtitle: const Text(
+                  'Los tickets salen directo a esta impresora. Si eliges otra, se guarda la nueva.',
+                  style: TextStyle(fontSize: 12),
+                ),
+                trailing: TextButton(
+                  onPressed: _imprimiendo ? null : _olvidarGuardada,
+                  child: const Text('Olvidar'),
+                ),
+              ),
+            ),
           if (!_servicio.bluetoothActivo)
             _Mensaje(
               texto: 'El Bluetooth está apagado. Actívalo y toca «Escanear».',

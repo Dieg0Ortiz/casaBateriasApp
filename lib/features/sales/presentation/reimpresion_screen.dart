@@ -105,7 +105,7 @@ class _ReimpresionScreenState extends State<ReimpresionScreen> {
             textCapitalization: TextCapitalization.characters,
             decoration: const InputDecoration(
               labelText: 'Folio de la venta',
-              hintText: 'NV-20261003-000177',
+              hintText: 'NV-MAT-000177',
             ),
           ),
           const SizedBox(height: 12),
@@ -158,16 +158,11 @@ class _ReimpresionScreenState extends State<ReimpresionScreen> {
               ),
             const SizedBox(height: 14),
             FilledButton.icon(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => ImpresoraScreen(
-                      titulo: 'reimpresión ${lista.folio}',
-                      construir: () => _ticket(lista),
-                    ),
-                  ),
-                );
-              },
+              onPressed: () => imprimirDocumento(
+                context,
+                titulo: 'reimpresión ${lista.folio}',
+                construir: () => _ticket(lista),
+              ),
               icon: const Icon(Icons.print_rounded),
               label: const Text('Imprimir ticket marcado'),
             ),

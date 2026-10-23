@@ -2,12 +2,16 @@ import '../../../../core/utils/date_formatters.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import '../../../core/network/api_exception.dart';
 import '../../../core/security/device_security_service.dart';
+import '../../printing/printer_screen.dart';
 import '../domain/cash_models.dart';
 import 'cash_viewmodel.dart';
+import 'corte_tickets.dart';
 
-/// Pantalla de caja: apertura con efectivo inicial, resumen del turno
-/// (inicial + ventas = esperado) y cierre con monto reportado.
+/// Pantalla de caja: apertura con efectivo inicial, resumen del turno con
+/// dos cortes separados (efectivo, y tarjetas y transferencias), las ventas a
+/// crédito aparte, y cierre contando solo el efectivo.
 /// Implementa el diseño "Ultramarine Industrial".
 class CashScreen extends StatefulWidget {
   const CashScreen({super.key});
@@ -69,8 +73,59 @@ class _CashScreenState extends State<CashScreen> {
     final monto = double.parse(_montoFinalCtrl.text.trim());
     _montoFinalCtrl.clear();
     final exito = await vm.cerrar(monto);
-    if (exito && mounted && vm.ultimoCierre != null) {
-      await _mostrarResultadoCierre(vm.ultimoCierre!);
+    final cierre = vm.ultimoCierre;
+    if (!exito || !mounted || cierre == null) return;
+    final resumen = cierre.resumen;
+    if (resumen != null) {
+      await _mostrarCorte(resumen, recienCerrado: true);
+    } else {
+      await _mostrarResultadoCierre(cierre);
+    }
+  }
+
+  void _imprimirCorteEfectivo(ResumenCorte r) {
+    imprimirDocumento(
+      context,
+      titulo: 'el corte de efectivo',
+      construir: () => ticketCorteEfectivo(r),
+    );
+  }
+
+  void _imprimirCorteElectronico(ResumenCorte r) {
+    imprimirDocumento(
+      context,
+      titulo: 'el corte de tarjetas y transferencias',
+      construir: () => ticketCorteElectronico(r),
+    );
+  }
+
+  Future<void> _mostrarCorte(ResumenCorte r, {bool recienCerrado = false}) {
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: !recienCerrado,
+      builder: (_) => _DialogoCorte(
+        resumen: r,
+        moneda: _moneda,
+        recienCerrado: recienCerrado,
+        onImprimirEfectivo: () => _imprimirCorteEfectivo(r),
+        onImprimirElectronico: () => _imprimirCorteElectronico(r),
+      ),
+    );
+  }
+
+  Future<void> _verCorte(CorteCaja corte) async {
+    final vm = context.read<CashViewModel>();
+    final mensajero = ScaffoldMessenger.of(context);
+    try {
+      final resumen = await vm.resumenDe(corte.id);
+      if (!mounted) return;
+      await _mostrarCorte(resumen);
+    } on ApiException catch (e) {
+      mensajero.showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      mensajero.showSnackBar(
+        const SnackBar(content: Text('No se pudo consultar ese corte.')),
+      );
     }
   }
 
@@ -119,11 +174,11 @@ class _CashScreenState extends State<CashScreen> {
                 ),
                 const SizedBox(height: 18),
                 _FilaResultado(
-                  etiqueta: 'Monto esperado',
+                  etiqueta: 'Efectivo esperado',
                   valor: _moneda.format(calculado),
                 ),
                 _FilaResultado(
-                  etiqueta: 'Monto reportado',
+                  etiqueta: 'Efectivo contado',
                   valor: _moneda.format(reportado),
                 ),
                 const Divider(height: 20),
@@ -155,7 +210,14 @@ class _CashScreenState extends State<CashScreen> {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _HistorialCortes(vm: context.read<CashViewModel>(), moneda: _moneda),
+      builder: (ctx) => _HistorialCortes(
+        vm: context.read<CashViewModel>(),
+        moneda: _moneda,
+        onVerCorte: (corte) {
+          Navigator.of(ctx).pop();
+          _verCorte(corte);
+        },
+      ),
     );
   }
 
@@ -225,12 +287,20 @@ class _CashScreenState extends State<CashScreen> {
       );
     }
 
-    return _ResumenTurno(
-      activa: activa,
-      moneda: _moneda,
-      procesando: vm.procesando,
-      error: vm.mensajeError,
-      onCerrar: _cerrarCaja,
+    final resumen = activa.resumen;
+    return RefreshIndicator(
+      onRefresh: vm.cargar,
+      child: _ResumenTurno(
+        activa: activa,
+        moneda: _moneda,
+        procesando: vm.procesando,
+        error: vm.mensajeError,
+        onCerrar: _cerrarCaja,
+        onImprimirEfectivo:
+            resumen == null ? null : () => _imprimirCorteEfectivo(resumen),
+        onImprimirElectronico:
+            resumen == null ? null : () => _imprimirCorteElectronico(resumen),
+      ),
     );
   }
 }
@@ -355,6 +425,8 @@ class _ResumenTurno extends StatelessWidget {
     required this.procesando,
     required this.error,
     required this.onCerrar,
+    this.onImprimirEfectivo,
+    this.onImprimirElectronico,
   });
 
   final CajaActiva activa;
@@ -362,14 +434,18 @@ class _ResumenTurno extends StatelessWidget {
   final bool procesando;
   final String? error;
   final VoidCallback onCerrar;
+  final VoidCallback? onImprimirEfectivo;
+  final VoidCallback? onImprimirElectronico;
 
   @override
   Widget build(BuildContext context) {
     final abiertaEn = activa.corte?.abiertoEn;
     final colors = Theme.of(context).colorScheme;
+    final resumen = activa.resumen;
 
     return ListView(
       padding: const EdgeInsets.all(16),
+      physics: const AlwaysScrollableScrollPhysics(),
       children: [
         Card(
           child: Padding(
@@ -417,14 +493,45 @@ class _ResumenTurno extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 20),
+                Text(
+                  'CORTE DE EFECTIVO',
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 6),
                 _FilaResumen(
                   etiqueta: 'Fondo Inicial',
                   valor: moneda.format(activa.corte?.montoInicial ?? 0),
                 ),
-                _FilaResumen(
-                  etiqueta: 'Ventas del Turno en Efectivo',
-                  valor: moneda.format(activa.totalVentas),
-                ),
+                if (resumen != null) ...[
+                  _FilaResumen(
+                    etiqueta: 'Ventas en efectivo (${resumen.efectivo.ventasCount})',
+                    valor: moneda.format(resumen.efectivo.ventas),
+                  ),
+                  if (resumen.efectivo.intercambios != 0)
+                    _FilaResumen(
+                      etiqueta: 'Intercambios de cascos',
+                      valor: moneda.format(resumen.efectivo.intercambios),
+                    ),
+                  if (resumen.efectivo.abonosCredito != 0)
+                    _FilaResumen(
+                      etiqueta: 'Abonos de crédito',
+                      valor: moneda.format(resumen.efectivo.abonosCredito),
+                    ),
+                  if (resumen.efectivo.devoluciones != 0)
+                    _FilaResumen(
+                      etiqueta: 'Devoluciones pagadas',
+                      valor: '− ${moneda.format(resumen.efectivo.devoluciones)}',
+                    ),
+                ] else
+                  _FilaResumen(
+                    etiqueta: 'Ventas del turno',
+                    valor: moneda.format(activa.totalVentas),
+                  ),
                 const Divider(height: 24),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -435,7 +542,7 @@ class _ResumenTurno extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'MONTO ESPERADO',
+                            'EFECTIVO ESPERADO',
                             style: TextStyle(
                               fontFamily: 'monospace',
                               fontSize: 11,
@@ -446,7 +553,7 @@ class _ResumenTurno extends StatelessWidget {
                           ),
                           const SizedBox(height: 2),
                           const Text(
-                            'Efectivo físico en gaveta',
+                            'Lo que debe haber en el cajón',
                             style: TextStyle(fontSize: 12),
                           ),
                         ],
@@ -470,6 +577,17 @@ class _ResumenTurno extends StatelessWidget {
                     ),
                   ],
                 ),
+                if (onImprimirEfectivo != null) ...[
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: onImprimirEfectivo,
+                      icon: const Icon(Icons.print_rounded, size: 18),
+                      label: const Text('Imprimir corte de efectivo'),
+                    ),
+                  ),
+                ],
                 if (error != null) ...[
                   const SizedBox(height: 12),
                   Text(
@@ -477,7 +595,34 @@ class _ResumenTurno extends StatelessWidget {
                     style: TextStyle(color: colors.error, fontSize: 13),
                   ),
                 ],
-                const SizedBox(height: 24),
+              ],
+            ),
+          ),
+        ),
+        if (resumen != null) ...[
+          const SizedBox(height: 12),
+          _TarjetaElectronico(
+            resumen: resumen,
+            moneda: moneda,
+            onImprimir: onImprimirElectronico,
+          ),
+          const SizedBox(height: 12),
+          _TarjetaCreditos(resumen: resumen, moneda: moneda),
+        ],
+        const SizedBox(height: 16),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Al cerrar se cuenta solo el efectivo del cajón. Tarjetas y '
+                  'transferencias tienen su propio corte y los créditos no '
+                  'entran a ninguno.',
+                  style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant, height: 1.35),
+                ),
+                const SizedBox(height: 14),
                 OutlinedButton.icon(
                   key: const ValueKey('btn-cerrar-caja'),
                   style: OutlinedButton.styleFrom(
@@ -603,6 +748,12 @@ class _DialogoCierre extends StatelessWidget {
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
+            Text(
+              'Cuenta solo el efectivo del cajón. Los vouchers de tarjeta y las '
+              'transferencias van en su propio corte.',
+              style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 13, height: 1.35),
+            ),
+            const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -613,7 +764,7 @@ class _DialogoCierre extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Monto esperado:',
+                    'Efectivo esperado:',
                     style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 14),
                   ),
                   Text(
@@ -635,7 +786,7 @@ class _DialogoCierre extends StatelessWidget {
                 fontWeight: FontWeight.bold,
               ),
               decoration: const InputDecoration(
-                labelText: 'Monto físico reportado',
+                labelText: 'Efectivo contado',
                 prefixText: r'$ ',
               ),
             ),
@@ -674,11 +825,244 @@ class _DialogoCierre extends StatelessWidget {
   }
 }
 
+/// Corte de tarjetas y transferencias del turno.
+class _TarjetaElectronico extends StatelessWidget {
+  const _TarjetaElectronico({
+    required this.resumen,
+    required this.moneda,
+    this.onImprimir,
+  });
+
+  final ResumenCorte resumen;
+  final NumberFormat moneda;
+  final VoidCallback? onImprimir;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final el = resumen.electronico;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'CORTE DE TARJETAS Y TRANSFERENCIAS',
+              style: TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: colors.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 6),
+            _FilaResumen(etiqueta: 'Tarjeta de débito', valor: moneda.format(el.tarjetaDebito)),
+            _FilaResumen(etiqueta: 'Tarjeta de crédito', valor: moneda.format(el.tarjetaCredito)),
+            if (el.tarjetaSinTipo != 0)
+              _FilaResumen(etiqueta: 'Tarjeta (sin tipo)', valor: moneda.format(el.tarjetaSinTipo)),
+            _FilaResumen(etiqueta: 'Transferencias', valor: moneda.format(el.transferencias)),
+            if (el.devolucionesTarjeta + el.devolucionesTransferencia != 0)
+              _FilaResumen(
+                etiqueta: 'Devoluciones',
+                valor: '− ${moneda.format(el.devolucionesTarjeta + el.devolucionesTransferencia)}',
+              ),
+            const Divider(height: 20),
+            _FilaResultado(
+              etiqueta: 'Total del corte (${el.operaciones.length} operaciones)',
+              valor: moneda.format(el.total),
+              destacada: true,
+            ),
+            if (onImprimir != null)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: onImprimir,
+                  icon: const Icon(Icons.print_rounded, size: 18),
+                  label: const Text('Imprimir corte de tarjetas'),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Ventas a crédito del turno: informativo, no suman a ningún corte.
+class _TarjetaCreditos extends StatelessWidget {
+  const _TarjetaCreditos({required this.resumen, required this.moneda});
+
+  final ResumenCorte resumen;
+  final NumberFormat moneda;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    const ambar = Color(0xFFB45309);
+    return Card(
+      color: ambar.withValues(alpha: 0.06),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: ambar.withValues(alpha: 0.25)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'CRÉDITOS A EMPRESAS',
+              style: TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: ambar,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'No se cobraron: no entran a ningún corte.',
+              style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
+            ),
+            const SizedBox(height: 8),
+            _FilaResumen(
+              etiqueta: '${resumen.creditosCount} ventas · ${resumen.creditosPiezas} pilas',
+              valor: moneda.format(resumen.creditosTotal),
+            ),
+            for (final c in resumen.creditos)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  '${c.folio} · ${c.empresa} · ${c.piezas} pilas · ${moneda.format(c.total)}',
+                  style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Los dos cortes de una caja, con su botón de impresión cada uno.
+class _DialogoCorte extends StatelessWidget {
+  const _DialogoCorte({
+    required this.resumen,
+    required this.moneda,
+    required this.recienCerrado,
+    required this.onImprimirEfectivo,
+    required this.onImprimirElectronico,
+  });
+
+  final ResumenCorte resumen;
+  final NumberFormat moneda;
+  final bool recienCerrado;
+  final VoidCallback onImprimirEfectivo;
+  final VoidCallback onImprimirElectronico;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final e = resumen.efectivo;
+    final el = resumen.electronico;
+    final diferencia = e.diferencia;
+    final hayDiferencia = diferencia != null && diferencia.abs() > 0.01;
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      backgroundColor: colorScheme.surface,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(22, 24, 22, 18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              recienCerrado ? 'Caja cerrada' : 'Corte de caja',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${resumen.sucursal} · ${formatFechaCorta(resumen.abiertoEn)}'
+              '${resumen.cerradoEn != null ? ' a ${formatHora(resumen.cerradoEn)}' : ' (abierta)'}',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 16),
+            const Text('Corte de efectivo', style: TextStyle(fontWeight: FontWeight.w700)),
+            _FilaResultado(etiqueta: 'Efectivo esperado', valor: moneda.format(e.esperado)),
+            if (e.contado != null)
+              _FilaResultado(etiqueta: 'Efectivo contado', valor: moneda.format(e.contado!)),
+            if (diferencia != null)
+              _FilaResultado(
+                etiqueta: hayDiferencia
+                    ? (diferencia > 0 ? 'Sobrante' : 'Faltante')
+                    : 'Diferencia',
+                valor: '${diferencia >= 0 ? '+' : ''}${moneda.format(diferencia)}',
+                destacada: true,
+              ),
+            const SizedBox(height: 4),
+            OutlinedButton.icon(
+              onPressed: onImprimirEfectivo,
+              icon: const Icon(Icons.print_rounded, size: 18),
+              label: const Text('Imprimir corte de efectivo'),
+            ),
+            const Divider(height: 26),
+            const Text('Corte de tarjetas y transferencias', style: TextStyle(fontWeight: FontWeight.w700)),
+            _FilaResultado(etiqueta: 'Tarjetas', valor: moneda.format(el.totalTarjetas)),
+            _FilaResultado(etiqueta: 'Transferencias', valor: moneda.format(el.totalTransferencias)),
+            _FilaResultado(etiqueta: 'Total', valor: moneda.format(el.total), destacada: true),
+            const SizedBox(height: 4),
+            OutlinedButton.icon(
+              onPressed: onImprimirElectronico,
+              icon: const Icon(Icons.print_rounded, size: 18),
+              label: const Text('Imprimir corte de tarjetas'),
+            ),
+            if (resumen.creditosCount > 0) ...[
+              const Divider(height: 26),
+              Text(
+                'Créditos a empresas (aparte): ${resumen.creditosCount} ventas, '
+                '${resumen.creditosPiezas} pilas, ${moneda.format(resumen.creditosTotal)}',
+                style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
+              ),
+            ],
+            if (resumen.devolucionesCount > 0 || resumen.cancelacionesCount > 0) ...[
+              const SizedBox(height: 6),
+              Text(
+                '${resumen.devolucionesCount} devoluciones (${moneda.format(resumen.devolucionesTotal)}) · '
+                '${resumen.cancelacionesCount} tickets cancelados',
+                style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
+              ),
+            ],
+            const SizedBox(height: 18),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+              child: const Text('Listo', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _HistorialCortes extends StatelessWidget {
-  const _HistorialCortes({required this.vm, required this.moneda});
+  const _HistorialCortes({
+    required this.vm,
+    required this.moneda,
+    required this.onVerCorte,
+  });
 
   final CashViewModel vm;
   final NumberFormat moneda;
+  final ValueChanged<CorteCaja> onVerCorte;
 
   @override
   Widget build(BuildContext context) {
@@ -712,6 +1096,11 @@ class _HistorialCortes extends StatelessWidget {
             'Historial de Cortes de Caja',
             style: Theme.of(context).textTheme.titleLarge?.copyWith(fontSize: 18),
           ),
+          const SizedBox(height: 4),
+          Text(
+            'Toca un corte para verlo o reimprimirlo.',
+            style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
+          ),
           const SizedBox(height: 12),
           Flexible(
             child: cortes.isEmpty
@@ -731,6 +1120,7 @@ class _HistorialCortes extends StatelessWidget {
                       return Card(
                         margin: const EdgeInsets.only(bottom: 8),
                         child: ListTile(
+                          onTap: () => onVerCorte(corte),
                           leading: Icon(
                             cerrado ? Icons.lock_outline_rounded : Icons.lock_open_rounded,
                             color: cerrado ? colors.onSurfaceVariant : colors.primary,
@@ -740,8 +1130,9 @@ class _HistorialCortes extends StatelessWidget {
                             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                           ),
                           subtitle: Text(
-                            'Inicial ${moneda.format(corte.montoInicial)}'
-                            '${corte.montoCalculado != null ? ' · Esperado ${moneda.format(corte.montoCalculado!)}' : ''}',
+                            'Efectivo ${moneda.format(corte.montoCalculado ?? corte.montoInicial)}'
+                            '${corte.totalTarjetas != null ? ' · Tarjetas ${moneda.format(corte.totalTarjetas!)}' : ''}'
+                            '${corte.totalTransferencias != null ? ' · Transf. ${moneda.format(corte.totalTransferencias!)}' : ''}',
                             style: const TextStyle(fontSize: 12),
                           ),
                           trailing: corte.diferencia != null

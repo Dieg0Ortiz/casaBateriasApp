@@ -26,4 +26,7 @@ class CashRepositoryImpl implements CashRepository {
   }) {
     return _dataSource.cerrar(corteId: corteId, montoFinal: montoFinal);
   }
+
+  @override
+  Future<ResumenCorte> resumen(String corteId) => _dataSource.resumen(corteId);
 }

@@ -1,15 +1,25 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:bluetooth_print_plus/bluetooth_print_plus.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 /// Servicio de impresión térmica Bluetooth (Fase 9). Encapsula
 /// `bluetooth_print_plus` (Bluetooth Classic) para que las pantallas no
 /// dependan del plugin directamente.
+///
+/// Recuerda la última impresora que imprimió bien: los tickets siguientes
+/// salen directo a ella, sin volver a buscar ni elegir.
 class PrinterService {
   PrinterService._();
 
   static final PrinterService instance = PrinterService._();
+
+  static const _storage = FlutterSecureStorage(
+    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+  );
+  static const _claveImpresora = 'impresora_tickets';
 
   bool get bluetoothActivo => BluetoothPrintPlus.isBlueOn;
 
@@ -70,6 +80,55 @@ class PrinterService {
       await BluetoothPrintPlus.disconnect();
     } catch (_) {
       // No importa si ya estaba desconectado.
+    }
+  }
+
+  /// Conecta, imprime y desconecta. Se desconecta siempre: la impresora de
+  /// la sucursal la comparten varios teléfonos y solo acepta una conexión.
+  Future<bool> imprimir(
+    BluetoothDevice dispositivo,
+    List<int> bytes, {
+    Duration timeout = const Duration(seconds: 20),
+  }) async {
+    if (bytes.isEmpty) return false;
+    final conectado = await conectar(dispositivo, timeout: timeout);
+    if (!conectado) return false;
+    final ok = await escribir(bytes);
+    await desconectar();
+    return ok;
+  }
+
+  /// Impresora que se usa sin preguntar, o null si no hay una guardada.
+  Future<BluetoothDevice?> impresoraGuardada() async {
+    try {
+      final raw = await _storage.read(key: _claveImpresora);
+      if (raw == null || raw.isEmpty) return null;
+      final json = jsonDecode(raw) as Map<String, dynamic>;
+      final address = json['address'] as String?;
+      if (address == null || address.isEmpty) return null;
+      return BluetoothDevice(json['name'] as String? ?? '', address)
+        ..type = (json['type'] as num?)?.toInt() ?? 0;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> guardarImpresora(BluetoothDevice dispositivo) async {
+    try {
+      await _storage.write(
+        key: _claveImpresora,
+        value: jsonEncode(dispositivo.toJson()),
+      );
+    } catch (_) {
+      // Si no se puede guardar, la próxima vez se vuelve a elegir.
+    }
+  }
+
+  Future<void> olvidarImpresora() async {
+    try {
+      await _storage.delete(key: _claveImpresora);
+    } catch (_) {
+      // Nada que olvidar.
     }
   }
 }

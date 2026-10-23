@@ -48,6 +48,13 @@ class CashRemoteDataSource {
     return CorteCaja.fromJson(res!);
   }
 
+  Future<ResumenCorte> resumen(String corteId) async {
+    final res = await _pedir<Map<String, dynamic>>(
+      () => _dio.get<Map<String, dynamic>>('/api/v1/cash/$corteId/resumen'),
+    );
+    return ResumenCorte.fromJson(res ?? const {});
+  }
+
   Future<T?> _pedir<T>(Future<Response<T>> Function() peticion) async {
     try {
       final res = await peticion();
