@@ -93,9 +93,6 @@ class TicketBuilder {
     if (datos.empleado != null && datos.empleado!.isNotEmpty) {
       bytes.addAll(g.text('Atendio: ${sanitizarTexto(datos.empleado!)}'));
     }
-    if (datos.metodoPago != null && datos.metodoPago!.isNotEmpty) {
-      bytes.addAll(g.text('Pago: ${sanitizarTexto(datos.metodoPago!)}'));
-    }
 
     // ══════════════════════════════════════════
     // TABLA DE PRODUCTOS
@@ -209,6 +206,7 @@ class TicketBuilder {
       'Importe en Pesos M.N.',
       styles: const PosStyles(align: PosAlign.center),
     ));
+    bytes.addAll(_formaDePago(g, datos));
 
     // ══════════════════════════════════════════
     // PIE DE TICKET
@@ -232,6 +230,10 @@ class TicketBuilder {
       sanitizarTexto('Solicitar factura el día de su compra'),
       styles: const PosStyles(bold: true, align: PosAlign.center),
     ));
+    // La garantía es para el cliente: el papel del comercio no la lleva.
+    if (copia != CopiaTicket.comercio) {
+      bytes.addAll(_leyendaSucursal(g, datos.leyenda));
+    }
     if (reimpresion) {
       bytes.addAll(g.feed(1));
       bytes.addAll(_leyendaReimpresion(g, datos));
@@ -241,6 +243,49 @@ class TicketBuilder {
     bytes.addAll(g.feed(3));
     bytes.addAll(g.cut());
 
+    return bytes;
+  }
+
+  /// Forma de pago en negritas bajo el total; en un pago mixto, cuánto fue
+  /// con cada forma.
+  List<int> _formaDePago(Generator g, DatosTicket datos) {
+    final metodo = datos.metodoPago?.trim() ?? '';
+    if (metodo.isEmpty) return const [];
+    final bytes = <int>[
+      ...g.text(_linea),
+      ...g.text(
+        'FORMA DE PAGO: ${sanitizarTexto(metodo).toUpperCase()}',
+        styles: const PosStyles(bold: true),
+      ),
+    ];
+    // Con una sola forma de pago el desglose repetiría el total.
+    if (datos.desglosePago.length > 1) {
+      for (final pago in datos.desglosePago) {
+        bytes.addAll(_renglonImporte(g, pago.metodo, pago.monto));
+      }
+    }
+    return bytes;
+  }
+
+  /// Texto de la sucursal (garantía) renglón por renglón, respetando los
+  /// saltos de línea que escribió el administrador.
+  List<int> _leyendaSucursal(Generator g, String? leyenda) {
+    final texto = leyenda?.trim() ?? '';
+    if (texto.isEmpty) return const [];
+    final bytes = <int>[
+      ...g.feed(1),
+      ...g.text(_linea, styles: const PosStyles(align: PosAlign.center)),
+    ];
+    for (final parrafo in sanitizarTexto(texto).split(RegExp(r'\r?\n'))) {
+      if (parrafo.trim().isEmpty) {
+        bytes.addAll(g.feed(1));
+        continue;
+      }
+      for (final renglon in _dividirTexto(parrafo.trim(), 32)) {
+        bytes.addAll(g.text(renglon));
+      }
+    }
+    bytes.addAll(g.text(_linea, styles: const PosStyles(align: PosAlign.center)));
     return bytes;
   }
 

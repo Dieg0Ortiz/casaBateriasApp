@@ -109,7 +109,7 @@ void main() {
     expect(textoCompleto, contains('Joaquin Gabriel Estrada Marquez'));
     expect(textoCompleto, contains('EAMJ-760228-E21'));
     expect(textoCompleto, contains('LA SALLE'));
-    expect(textoCompleto, contains('Pago: Efectivo'));
+    expect(textoCompleto, contains('FORMA DE PAGO: EFECTIVO'));
     expect(textoCompleto, contains('Solicitar factura el dia de su compra'));
   });
 
@@ -138,7 +138,7 @@ void main() {
     expect(textoCompleto, contains('EAMJ-760228-E21'));
     expect(textoCompleto, contains('Matriz'));
     expect(textoCompleto, contains('Carretera Villaflores'));
-    expect(textoCompleto, contains('Pago: Tarjeta Debito'));
+    expect(textoCompleto, contains('FORMA DE PAGO: TARJETA DEBITO'));
     expect(textoCompleto, contains('Solicitar factura el dia de su compra'));
   });
 
@@ -313,5 +313,108 @@ void main() {
     expect(texto, contains('Reimpresion 2'));
     expect(texto, contains('NV-20261003-000177'));
     expect(texto, isNot(contains('COMERCIO')));
+  });
+
+  group('forma de pago y garantía', () {
+    const garantia = 'REQUISITOS DE GARANTÍA\n'
+        '1. El acumulador debe ser revisado y evaluado por personal de la empresa.\n'
+        '\n'
+        'CENTROS DE SERVICIO\n'
+        'Gonher y Voltar: Carret. Panamericana, Plan de Ayala.';
+
+    DatosTicket venta({
+      String metodo = 'Efectivo',
+      List<PagoTicket> desglose = const [],
+      String? leyenda = garantia,
+      int? reimpresion,
+    }) {
+      return DatosTicket(
+        encabezado: 'CASA BATERIAS',
+        sucursal: 'Matriz',
+        folio: 'NV-MAT-000124',
+        fecha: '23/10/2026 11:00',
+        lineas: const [
+          LineaTicket(marca: 'LTH', modelo: 'L-42', cantidad: 1, precio: 2500),
+        ],
+        total: 2500,
+        metodoPago: metodo,
+        desglosePago: desglose,
+        leyenda: leyenda,
+        reimpresionNumero: reimpresion,
+        reimpresionAutorizo: reimpresion == null ? null : 'Admin',
+        reimpresionMotivo: reimpresion == null ? null : 'Lo perdio',
+      );
+    }
+
+    test('la forma de pago sale en las dos copias, en mayúsculas', () async {
+      for (final copia in CopiaTicket.values) {
+        final texto = String.fromCharCodes(
+          await builder.ticket(venta(metodo: 'Tarjeta Débito'), copia: copia),
+        );
+        expect(texto, contains('FORMA DE PAGO: TARJETA DEBITO'));
+      }
+    });
+
+    test('pago mixto: cuánto fue con cada forma', () async {
+      final texto = String.fromCharCodes(await builder.ticket(
+        venta(
+          metodo: 'Pago Mixto',
+          desglose: const [
+            PagoTicket('Efectivo', 1000),
+            PagoTicket('Transferencia', 1500),
+          ],
+        ),
+        copia: CopiaTicket.cliente,
+      ));
+      expect(texto, contains('FORMA DE PAGO: PAGO MIXTO'));
+      expect(texto, contains('Efectivo'));
+      expect(texto, contains(r'$1,000.00'));
+      expect(texto, contains('Transferencia'));
+      expect(texto, contains(r'$1,500.00'));
+    });
+
+    test('la garantía va en el papel del cliente, no en el del comercio', () async {
+      final cliente = String.fromCharCodes(
+        await builder.ticket(venta(), copia: CopiaTicket.cliente),
+      );
+      final comercio = String.fromCharCodes(
+        await builder.ticket(venta(), copia: CopiaTicket.comercio),
+      );
+
+      expect(cliente, contains('REQUISITOS DE GARANTIA'));
+      expect(cliente, contains('CENTROS DE SERVICIO'));
+      expect(cliente, contains('Plan de Ayala.'));
+      expect(comercio, isNot(contains('GARANTIA')));
+      // CLIENTE sigue siendo el último renglón del papel.
+      expect(cliente.lastIndexOf('CLIENTE'), greaterThan(cliente.lastIndexOf('Plan de Ayala')));
+    });
+
+    test('la garantía se parte en renglones de 32 caracteres sin cortar palabras', () async {
+      final texto = String.fromCharCodes(
+        await builder.ticket(venta(), copia: CopiaTicket.cliente),
+      );
+      expect(texto, contains('1. El acumulador debe ser'));
+      expect(texto, isNot(contains('1. El acumulador debe ser revisado y evaluado')));
+    });
+
+    test('la reimpresión también lleva la garantía', () async {
+      final texto = String.fromCharCodes(await builder.ticket(venta(reimpresion: 1)));
+      expect(texto, contains('REIMPRESION'));
+      expect(texto, contains('CENTROS DE SERVICIO'));
+    });
+
+    test('sucursal sin leyenda: el ticket sale como antes', () async {
+      final sin = await builder.ticket(venta(leyenda: null), copia: CopiaTicket.cliente);
+      final vacia = await builder.ticket(venta(leyenda: '  \n '), copia: CopiaTicket.cliente);
+      expect(String.fromCharCodes(sin), isNot(contains('GARANTIA')));
+      expect(vacia, sin);
+    });
+  });
+
+  test('nombreMetodoPago traduce las claves de la base', () {
+    expect(nombreMetodoPago('tarjeta_credito'), 'Tarjeta Crédito');
+    expect(nombreMetodoPago('mixto'), 'Pago Mixto');
+    expect(nombreMetodoPago('credito'), 'Crédito');
+    expect(nombreMetodoPago('efectivo'), 'Efectivo');
   });
 }

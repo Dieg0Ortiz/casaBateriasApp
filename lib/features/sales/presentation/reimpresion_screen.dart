@@ -6,10 +6,11 @@ import '../../printing/print_models.dart';
 import '../../printing/printer_screen.dart';
 import '../../printing/ticket_builder.dart';
 import '../data/sales_remote_data_source.dart';
+import '../domain/sales_models.dart';
 
 /// Reimpresión de un ticket ya cobrado. No está en el flujo de cobro:
-/// pide folio, motivo y la clave de un administrador. El papel sale
-/// marcado como reimpresión.
+/// pide la venta (de la lista de hoy o por folio), el motivo y la clave de
+/// un administrador. El papel sale marcado como reimpresión.
 class ReimpresionScreen extends StatefulWidget {
   const ReimpresionScreen({super.key});
 
@@ -28,6 +29,17 @@ class _ReimpresionScreenState extends State<ReimpresionScreen> {
   String? _error;
   _Reimpresion? _autorizada;
 
+  List<VentaDelDia> _deHoy = const [];
+  bool _cargandoHoy = true;
+  String? _errorHoy;
+
+  @override
+  void initState() {
+    super.initState();
+    _folio.addListener(() => setState(() {}));
+    _cargarHoy();
+  }
+
   @override
   void dispose() {
     _folio.dispose();
@@ -35,6 +47,34 @@ class _ReimpresionScreenState extends State<ReimpresionScreen> {
     _email.dispose();
     _password.dispose();
     super.dispose();
+  }
+
+  Future<void> _cargarHoy() async {
+    setState(() {
+      _cargandoHoy = true;
+      _errorHoy = null;
+    });
+    try {
+      final ventas = await _ventas.ventasDeHoy();
+      if (!mounted) return;
+      setState(() => _deHoy = ventas);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _errorHoy = e.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _errorHoy = 'No se pudieron cargar las ventas de hoy.');
+    } finally {
+      if (mounted) setState(() => _cargandoHoy = false);
+    }
+  }
+
+  void _elegir(VentaDelDia venta) {
+    _folio.text = venta.folio;
+    setState(() {
+      _autorizada = null;
+      _error = null;
+    });
   }
 
   Future<void> _autorizar() async {
@@ -76,6 +116,8 @@ class _ReimpresionScreenState extends State<ReimpresionScreen> {
         fecha: formatFechaHora(datos.vendidaEn),
         empleado: datos.empleado,
         metodoPago: datos.metodoPago,
+        desglosePago: datos.desglose,
+        leyenda: datos.leyenda,
         lineas: datos.lineas,
         total: datos.total,
         reimpresionNumero: datos.numero,
@@ -96,8 +138,17 @@ class _ReimpresionScreenState extends State<ReimpresionScreen> {
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
         children: [
           Text(
-            'Esto no cobra de nuevo. Hace falta el folio, el motivo y la clave de un administrador. El papel sale marcado como reimpresión.',
+            'Esto no cobra de nuevo. Elige la venta de hoy o escribe su folio; hace falta el motivo y la clave de un administrador. El papel sale marcado como reimpresión.',
             style: TextStyle(color: colors.onSurfaceVariant, height: 1.35),
+          ),
+          const SizedBox(height: 18),
+          _VentasDeHoy(
+            ventas: _deHoy,
+            cargando: _cargandoHoy,
+            error: _errorHoy,
+            folioElegido: _folio.text.trim().toUpperCase(),
+            onElegir: _elegir,
+            onRecargar: _cargarHoy,
           ),
           const SizedBox(height: 18),
           TextField(
@@ -106,6 +157,7 @@ class _ReimpresionScreenState extends State<ReimpresionScreen> {
             decoration: const InputDecoration(
               labelText: 'Folio de la venta',
               hintText: 'NV-MAT-000177',
+              helperText: 'Se llena solo al tocar una venta de la lista',
             ),
           ),
           const SizedBox(height: 12),
@@ -113,7 +165,7 @@ class _ReimpresionScreenState extends State<ReimpresionScreen> {
             controller: _motivo,
             decoration: const InputDecoration(
               labelText: 'Por qué se reimprime',
-              hintText: 'La impresora no sacó el ticket',
+              hintText: 'El cliente perdió su ticket',
             ),
           ),
           const SizedBox(height: 12),
@@ -173,6 +225,141 @@ class _ReimpresionScreenState extends State<ReimpresionScreen> {
   }
 }
 
+/// Lista de las ventas de hoy para elegir cuál reimprimir.
+class _VentasDeHoy extends StatelessWidget {
+  const _VentasDeHoy({
+    required this.ventas,
+    required this.cargando,
+    required this.error,
+    required this.folioElegido,
+    required this.onElegir,
+    required this.onRecargar,
+  });
+
+  final List<VentaDelDia> ventas;
+  final bool cargando;
+  final String? error;
+  final String folioElegido;
+  final ValueChanged<VentaDelDia> onElegir;
+  final VoidCallback onRecargar;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
+    final Widget contenido;
+    if (cargando) {
+      contenido = const Padding(
+        padding: EdgeInsets.all(20),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    } else if (error != null) {
+      contenido = Padding(
+        padding: const EdgeInsets.all(16),
+        child: Text(error!, style: const TextStyle(color: Colors.red)),
+      );
+    } else if (ventas.isEmpty) {
+      contenido = Padding(
+        padding: const EdgeInsets.all(16),
+        child: Text(
+          'Todavía no hay ventas hoy.',
+          style: TextStyle(color: colors.onSurfaceVariant),
+        ),
+      );
+    } else {
+      contenido = Column(
+        children: [
+          for (final venta in ventas)
+            _RenglonVenta(
+              venta: venta,
+              elegida: venta.folio.toUpperCase() == folioElegido,
+              onTap: venta.cancelada ? null : () => onElegir(venta),
+            ),
+        ],
+      );
+    }
+
+    return Card(
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 4, 0),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Ventas de hoy',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Actualizar',
+                  onPressed: cargando ? null : onRecargar,
+                  icon: const Icon(Icons.refresh_rounded),
+                ),
+              ],
+            ),
+          ),
+          contenido,
+        ],
+      ),
+    );
+  }
+}
+
+class _RenglonVenta extends StatelessWidget {
+  const _RenglonVenta({
+    required this.venta,
+    required this.elegida,
+    required this.onTap,
+  });
+
+  final VentaDelDia venta;
+  final bool elegida;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final detalle = [
+      if (venta.articulos.isNotEmpty) venta.articulos.join(', '),
+      nombreMetodoPago(venta.metodoPago),
+      if (venta.cajero != null) 'Cobró ${venta.cajero}',
+      if (venta.sucursal != null) venta.sucursal!,
+    ].join(' · ');
+
+    return ListTile(
+      selected: elegida,
+      selectedTileColor: colors.primaryContainer.withValues(alpha: 0.35),
+      enabled: onTap != null,
+      onTap: onTap,
+      leading: Icon(
+        elegida ? Icons.check_circle_rounded : Icons.receipt_long_rounded,
+        color: elegida ? colors.primary : colors.onSurfaceVariant,
+      ),
+      title: Text(
+        '${formatHora(venta.creadaEn)}  ${venta.folio}',
+        style: const TextStyle(fontWeight: FontWeight.w600),
+      ),
+      subtitle: Text(
+        venta.cancelada ? 'Cancelada · $detalle' : detalle,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: Text(
+        TicketBuilder.moneda(venta.total),
+        style: TextStyle(
+          fontWeight: FontWeight.w700,
+          decoration: venta.cancelada ? TextDecoration.lineThrough : null,
+        ),
+      ),
+    );
+  }
+}
+
 class _Reimpresion {
   _Reimpresion({
     required this.numero,
@@ -182,8 +369,10 @@ class _Reimpresion {
     required this.total,
     required this.vendidaEn,
     required this.metodoPago,
+    required this.desglose,
     required this.sucursal,
     required this.direccion,
+    required this.leyenda,
     required this.empleado,
     required this.lineas,
   });
@@ -195,8 +384,10 @@ class _Reimpresion {
   final double total;
   final DateTime? vendidaEn;
   final String metodoPago;
+  final List<PagoTicket> desglose;
   final String sucursal;
   final String? direccion;
+  final String? leyenda;
   final String? empleado;
   final List<LineaTicket> lineas;
 
@@ -210,9 +401,19 @@ class _Reimpresion {
       folio: venta['folio'] as String? ?? '',
       total: (venta['total'] as num?)?.toDouble() ?? 0,
       vendidaEn: DateTime.tryParse(venta['created_at'] as String? ?? ''),
-      metodoPago: _metodo(venta['metodo_pago'] as String? ?? 'efectivo'),
+      metodoPago: nombreMetodoPago(venta['metodo_pago'] as String? ?? 'efectivo'),
+      desglose: (venta['desglose_pago'] is List ? venta['desglose_pago'] as List : const [])
+          .whereType<Map<String, dynamic>>()
+          .map(
+            (p) => PagoTicket(
+              nombreMetodoPago(p['metodo'] as String? ?? ''),
+              (p['monto'] as num?)?.toDouble() ?? 0,
+            ),
+          )
+          .toList(),
       sucursal: venta['sucursal'] as String? ?? '',
       direccion: venta['direccion'] as String?,
+      leyenda: venta['leyenda_ticket'] as String?,
       empleado: venta['empleado'] as String?,
       lineas: items.map((raw) {
         final item = raw as Map<String, dynamic>;
@@ -227,22 +428,5 @@ class _Reimpresion {
         );
       }).toList(),
     );
-  }
-
-  static String _metodo(String metodo) {
-    switch (metodo) {
-      case 'tarjeta_debito':
-        return 'Tarjeta Debito';
-      case 'tarjeta_credito':
-        return 'Tarjeta Credito';
-      case 'transferencia':
-        return 'Transferencia';
-      case 'mixto':
-        return 'Pago Mixto';
-      case 'credito':
-        return 'Credito';
-      default:
-        return 'Efectivo';
-    }
   }
 }

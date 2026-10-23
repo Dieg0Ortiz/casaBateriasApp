@@ -86,6 +86,18 @@ class SalesRemoteDataSource {
     return res ?? {};
   }
 
+  /// Ventas de hoy de la sucursal del usuario (el administrador ve las de
+  /// todas), de la más reciente a la más vieja.
+  Future<List<VentaDelDia>> ventasDeHoy() async {
+    final res = await _pedir<List<dynamic>>(
+      () => _dio.get<List<dynamic>>('/api/v1/sales/hoy'),
+    );
+    return (res ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(VentaDelDia.fromJson)
+        .toList();
+  }
+
   Map<String, dynamic> _itemAJson(LineaVenta linea) {
     return {
       'producto_id': linea.productoId,

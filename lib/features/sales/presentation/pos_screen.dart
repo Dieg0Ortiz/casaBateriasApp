@@ -46,6 +46,7 @@ class _PosScreenState extends State<PosScreen> {
   bool _dialogoCascoAbierto = false;
   bool _folioMostrado = false;
   List<LineaTicket> _ultimasLineas = const [];
+  List<PagoTicket> _ultimoDesglose = const [];
 
   @override
   void initState() {
@@ -543,6 +544,9 @@ class _PosScreenState extends State<PosScreen> {
             ),
           )
           .toList();
+      _ultimoDesglose = (resultadoPago.desglosePago ?? const [])
+          .map((p) => PagoTicket(nombreMetodoPago(p.metodo), p.monto))
+          .toList();
       _folioMostrado = false;
       await _cargarInventario();
       // El resumen del turno cambia (también con las ventas a crédito).
@@ -648,27 +652,6 @@ class _PosScreenState extends State<PosScreen> {
     );
   }
 
-  String _formatearMetodoPago(String metodo) {
-    switch (metodo.toLowerCase()) {
-      case 'efectivo':
-        return 'Efectivo';
-      case 'tarjeta_debito':
-        return 'Tarjeta Débito';
-      case 'tarjeta_credito':
-        return 'Tarjeta Crédito';
-      case 'tarjeta':
-        return 'Tarjeta';
-      case 'transferencia':
-        return 'Transferencia';
-      case 'mixto':
-        return 'Pago Mixto';
-      case 'credito':
-        return 'Crédito';
-      default:
-        return metodo;
-    }
-  }
-
   Future<List<int>> _construirTicket(
     VentaResultado venta, {
     required CopiaTicket copia,
@@ -683,7 +666,9 @@ class _PosScreenState extends State<PosScreen> {
       folio: venta.folio,
       fecha: fecha,
       empleado: context.read<AuthViewModel>().usuario?.nombreCompleto,
-      metodoPago: _formatearMetodoPago(venta.metodoPago),
+      metodoPago: nombreMetodoPago(venta.metodoPago),
+      desglosePago: _ultimoDesglose,
+      leyenda: _sucursalActual?.leyendaTicket,
       lineas: _ultimasLineas,
       total: venta.total,
     );

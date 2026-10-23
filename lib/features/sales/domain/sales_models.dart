@@ -179,3 +179,47 @@ class VentaResultado {
     );
   }
 }
+
+/// Una venta de hoy, como sale en la lista para reimprimir un ticket
+/// perdido sin conocer el folio.
+class VentaDelDia {
+  const VentaDelDia({
+    required this.folio,
+    required this.total,
+    required this.creadaEn,
+    required this.metodoPago,
+    this.estado = 'activa',
+    this.sucursal,
+    this.cajero,
+    this.articulos = const [],
+  });
+
+  final String folio;
+  final double total;
+  final DateTime? creadaEn;
+  final String metodoPago;
+  final String estado;
+  final String? sucursal;
+  final String? cajero;
+
+  /// "2 x LTH L-42", uno por renglón de la venta.
+  final List<String> articulos;
+
+  bool get cancelada => estado == 'cancelada';
+
+  factory VentaDelDia.fromJson(Map<String, dynamic> json) {
+    return VentaDelDia(
+      folio: json['folio'] as String? ?? '',
+      total: (json['total'] as num?)?.toDouble() ?? 0,
+      creadaEn: DateTime.tryParse(json['created_at'] as String? ?? ''),
+      metodoPago: json['metodo_pago'] as String? ?? 'efectivo',
+      estado: json['estado'] as String? ?? 'activa',
+      sucursal: json['sucursal'] as String?,
+      cajero: json['cajero'] as String?,
+      articulos: (json['articulos'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map((a) => '${(a['cantidad'] as num?)?.toInt() ?? 1} x ${a['producto'] ?? 'Producto'}')
+          .toList(),
+    );
+  }
+}

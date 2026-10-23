@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:casabateriaserp/core/network/api_exception.dart';
+import 'package:casabateriaserp/features/catalog/domain/catalog_models.dart';
 import 'package:casabateriaserp/features/sales/domain/sales_models.dart';
 import 'package:casabateriaserp/features/sales/domain/sales_repository.dart';
 import 'package:casabateriaserp/features/sales/presentation/sales_viewmodel.dart';
@@ -367,5 +368,36 @@ void main() {
     expect(vm.lineas.single.tipoPrecio, 'precio_especial');
     expect(vm.lineas.single.etiquetaTipoPrecio, 'Precio Especial');
     expect(vm.total, 1850);
+  });
+
+  test('VentaDelDia arma el resumen de pilas y reconoce las canceladas', () {
+    final venta = VentaDelDia.fromJson({
+      'folio': 'NV-MAT-000124',
+      'total': 4200,
+      'estado': 'cancelada',
+      'created_at': '2026-10-23T17:05:00Z',
+      'metodo_pago': 'mixto',
+      'cajero': 'Daniel',
+      'articulos': [
+        {'cantidad': 2, 'producto': 'LTH L-42'},
+        {'cantidad': 1, 'producto': null},
+      ],
+    });
+
+    expect(venta.articulos, ['2 x LTH L-42', '1 x Producto']);
+    expect(venta.cancelada, isTrue);
+    expect(venta.creadaEn, DateTime.utc(2026, 10, 23, 17, 5));
+    expect(venta.sucursal, isNull);
+  });
+
+  test('Sucursal lee la leyenda del ticket', () {
+    final sucursal = Sucursal.fromJson({
+      'id': 's1',
+      'nombre': 'Matriz',
+      'es_matriz': true,
+      'leyenda_ticket': 'Presentar la nota',
+    });
+    expect(sucursal.leyendaTicket, 'Presentar la nota');
+    expect(Sucursal.fromJson({'id': 's2', 'nombre': 'Norte'}).leyendaTicket, isNull);
   });
 }

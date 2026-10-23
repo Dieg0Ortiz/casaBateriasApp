@@ -8,6 +8,7 @@ class Sucursal {
     required this.nombre,
     required this.esMatriz,
     this.direccion,
+    this.leyendaTicket,
   });
 
   final String id;
@@ -15,12 +16,16 @@ class Sucursal {
   final bool esMatriz;
   final String? direccion;
 
+  /// Garantía que la sucursal imprime al pie del ticket del cliente.
+  final String? leyendaTicket;
+
   factory Sucursal.fromJson(Map<String, dynamic> json) {
     return Sucursal(
       id: json['id'] as String,
       nombre: json['nombre'] as String,
       esMatriz: json['es_matriz'] as bool? ?? false,
       direccion: json['direccion'] as String?,
+      leyendaTicket: json['leyenda_ticket'] as String?,
     );
   }
 }
