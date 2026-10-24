@@ -1,16 +1,22 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/network/api_exception.dart';
+import '../../autorizaciones/data/autorizaciones_remote_data_source.dart';
+import '../../autorizaciones/domain/solicitud_models.dart';
+import '../../autorizaciones/presentation/selector_autorizacion.dart';
+import '../../autorizaciones/presentation/solicitudes_screen.dart';
 import '../../../core/utils/date_formatters.dart';
 import '../../printing/print_models.dart';
 import '../../printing/printer_screen.dart';
 import '../../printing/ticket_builder.dart';
 import '../data/sales_remote_data_source.dart';
 import '../domain/sales_models.dart';
+import 'ticket_reimpresion.dart';
 
 /// Reimpresión de un ticket ya cobrado. No está en el flujo de cobro:
-/// pide la venta (de la lista de hoy o por folio), el motivo y la clave de
-/// un administrador. El papel sale marcado como reimpresión.
+/// pide la venta (de la lista de hoy o por folio) y el motivo; la autoriza
+/// un administrador desde el panel o con su clave aquí. El papel sale
+/// marcado como reimpresión.
 class ReimpresionScreen extends StatefulWidget {
   const ReimpresionScreen({super.key});
 
@@ -24,10 +30,12 @@ class _ReimpresionScreenState extends State<ReimpresionScreen> {
   final _email = TextEditingController();
   final _password = TextEditingController();
   final _ventas = SalesRemoteDataSource();
+  final _autorizaciones = AutorizacionesRemoteDataSource();
 
   bool _autorizando = false;
+  bool _aDistancia = true;
   String? _error;
-  _Reimpresion? _autorizada;
+  TicketReimpresion? _autorizada;
 
   List<VentaDelDia> _deHoy = const [];
   bool _cargandoHoy = true;
@@ -78,6 +86,7 @@ class _ReimpresionScreenState extends State<ReimpresionScreen> {
   }
 
   Future<void> _autorizar() async {
+    if (_aDistancia) return _pedirAlPanel();
     setState(() {
       _autorizando = true;
       _error = null;
@@ -91,7 +100,7 @@ class _ReimpresionScreenState extends State<ReimpresionScreen> {
         password: _password.text,
       );
       if (!mounted) return;
-      setState(() => _autorizada = _Reimpresion.fromJson(json));
+      setState(() => _autorizada = TicketReimpresion.fromJson(json));
       _password.clear();
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -104,27 +113,27 @@ class _ReimpresionScreenState extends State<ReimpresionScreen> {
     }
   }
 
-  Future<List<int>> _ticket(_Reimpresion datos) {
-    return TicketBuilder().ticket(
-      DatosTicket(
-        encabezado: 'CASA BATERIAS',
-        sucursal: datos.sucursal,
-        direccionSucursal: datos.direccion,
-        propietario: 'Joaquin Gabriel Estrada Marquez',
-        rfc: 'EAMJ-760228-E21',
-        folio: datos.folio,
-        fecha: formatFechaHora(datos.vendidaEn),
-        empleado: datos.empleado,
-        metodoPago: datos.metodoPago,
-        desglosePago: datos.desglose,
-        leyenda: datos.leyenda,
-        lineas: datos.lineas,
-        total: datos.total,
-        reimpresionNumero: datos.numero,
-        reimpresionAutorizo: datos.autorizo,
-        reimpresionMotivo: datos.motivo,
-      ),
-    );
+  Future<void> _pedirAlPanel() async {
+    setState(() {
+      _autorizando = true;
+      _error = null;
+      _autorizada = null;
+    });
+    try {
+      final solicitud = await _autorizaciones.solicitar(
+        tipo: TipoSolicitud.reimpresion,
+        folio: _folio.text,
+        motivo: _motivo.text,
+      );
+      if (!mounted) return;
+      await abrirSolicitud(context, solicitud);
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } catch (_) {
+      if (mounted) setState(() => _error = 'No se pudo enviar la solicitud.');
+    } finally {
+      if (mounted) setState(() => _autorizando = false);
+    }
   }
 
   @override
@@ -138,7 +147,7 @@ class _ReimpresionScreenState extends State<ReimpresionScreen> {
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
         children: [
           Text(
-            'Esto no cobra de nuevo. Elige la venta de hoy o escribe su folio; hace falta el motivo y la clave de un administrador. El papel sale marcado como reimpresión.',
+            'Esto no cobra de nuevo. Elige la venta de hoy o escribe su folio y el motivo; un administrador lo autoriza. El papel sale marcado como reimpresión.',
             style: TextStyle(color: colors.onSurfaceVariant, height: 1.35),
           ),
           const SizedBox(height: 18),
@@ -169,6 +178,12 @@ class _ReimpresionScreenState extends State<ReimpresionScreen> {
             ),
           ),
           const SizedBox(height: 12),
+          SelectorAutorizacion(
+            aDistancia: _aDistancia,
+            onCambio: (v) => setState(() => _aDistancia = v),
+          ),
+          if (!_aDistancia) ...[
+          const SizedBox(height: 12),
           TextField(
             controller: _email,
             keyboardType: TextInputType.emailAddress,
@@ -185,6 +200,7 @@ class _ReimpresionScreenState extends State<ReimpresionScreen> {
               labelText: 'Contraseña del administrador',
             ),
           ),
+          ],
           if (_error != null) ...[
             const SizedBox(height: 12),
             Text(_error!, style: const TextStyle(color: Colors.red)),
@@ -192,7 +208,13 @@ class _ReimpresionScreenState extends State<ReimpresionScreen> {
           const SizedBox(height: 18),
           FilledButton(
             onPressed: _autorizando ? null : _autorizar,
-            child: Text(_autorizando ? 'Verificando…' : 'Pedir autorización'),
+            child: Text(
+              _autorizando
+                  ? 'Enviando…'
+                  : _aDistancia
+                      ? 'Enviar al administrador'
+                      : 'Pedir autorización',
+            ),
           ),
           if (lista != null) ...[
             const SizedBox(height: 22),
@@ -213,7 +235,7 @@ class _ReimpresionScreenState extends State<ReimpresionScreen> {
               onPressed: () => imprimirDocumento(
                 context,
                 titulo: 'reimpresión ${lista.folio}',
-                construir: () => _ticket(lista),
+                construir: lista.construir,
               ),
               icon: const Icon(Icons.print_rounded),
               label: const Text('Imprimir ticket marcado'),
@@ -356,77 +378,6 @@ class _RenglonVenta extends StatelessWidget {
           decoration: venta.cancelada ? TextDecoration.lineThrough : null,
         ),
       ),
-    );
-  }
-}
-
-class _Reimpresion {
-  _Reimpresion({
-    required this.numero,
-    required this.autorizo,
-    required this.motivo,
-    required this.folio,
-    required this.total,
-    required this.vendidaEn,
-    required this.metodoPago,
-    required this.desglose,
-    required this.sucursal,
-    required this.direccion,
-    required this.leyenda,
-    required this.empleado,
-    required this.lineas,
-  });
-
-  final int numero;
-  final String autorizo;
-  final String motivo;
-  final String folio;
-  final double total;
-  final DateTime? vendidaEn;
-  final String metodoPago;
-  final List<PagoTicket> desglose;
-  final String sucursal;
-  final String? direccion;
-  final String? leyenda;
-  final String? empleado;
-  final List<LineaTicket> lineas;
-
-  factory _Reimpresion.fromJson(Map<String, dynamic> json) {
-    final venta = json['venta'] as Map<String, dynamic>? ?? {};
-    final items = (venta['items'] as List<dynamic>? ?? []);
-    return _Reimpresion(
-      numero: (json['numero'] as num?)?.toInt() ?? 1,
-      autorizo: json['autorizo'] as String? ?? '',
-      motivo: json['motivo'] as String? ?? '',
-      folio: venta['folio'] as String? ?? '',
-      total: (venta['total'] as num?)?.toDouble() ?? 0,
-      vendidaEn: DateTime.tryParse(venta['created_at'] as String? ?? ''),
-      metodoPago: nombreMetodoPago(venta['metodo_pago'] as String? ?? 'efectivo'),
-      desglose: (venta['desglose_pago'] is List ? venta['desglose_pago'] as List : const [])
-          .whereType<Map<String, dynamic>>()
-          .map(
-            (p) => PagoTicket(
-              nombreMetodoPago(p['metodo'] as String? ?? ''),
-              (p['monto'] as num?)?.toDouble() ?? 0,
-            ),
-          )
-          .toList(),
-      sucursal: venta['sucursal'] as String? ?? '',
-      direccion: venta['direccion'] as String?,
-      leyenda: venta['leyenda_ticket'] as String?,
-      empleado: venta['empleado'] as String?,
-      lineas: items.map((raw) {
-        final item = raw as Map<String, dynamic>;
-        return LineaTicket(
-          marca: item['marca'] as String?,
-          modelo: item['modelo'] as String? ?? 'Producto',
-          cantidad: (item['cantidad'] as num?)?.toInt() ?? 1,
-          precio: (item['precio_unitario'] as num?)?.toDouble() ?? 0,
-          conCasco: item['con_casco'] as bool?,
-          tipoPrecio: item['tipo_precio'] as String?,
-          comisionCasco: (item['comision_casco'] as num?)?.toDouble(),
-        );
-      }).toList(),
     );
   }
 }

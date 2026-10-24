@@ -7,6 +7,7 @@ import '../../cash/presentation/cash_screen.dart';
 import '../../cash/presentation/cash_viewmodel.dart';
 import '../../catalog/presentation/catalog_screen.dart';
 import '../../inventory/presentation/inventory_screen.dart';
+import '../../autorizaciones/presentation/solicitudes_screen.dart';
 import '../../sales/presentation/cancelacion_screen.dart';
 import '../../sales/presentation/pos_screen.dart';
 import '../../sales/presentation/reimpresion_screen.dart';
@@ -677,12 +678,24 @@ class _HomeScreenState extends State<HomeScreen> {
                   style: TextStyle(color: colors.onSurfaceVariant, fontSize: 13),
                 ),
               ),
+              TextButton.icon(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const SolicitudesScreen()),
+                  );
+                },
+                icon: Icon(Icons.send_to_mobile_rounded, size: 16, color: colors.onSurfaceVariant),
+                label: Text(
+                  'Autorizaciones',
+                  style: TextStyle(color: colors.onSurfaceVariant, fontSize: 13),
+                ),
+              ),
             ],
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 28),
             child: Text(
-              'Piden la clave de un administrador y quedan registrados.',
+              'Los autoriza un administrador desde el panel o con su clave, y quedan registrados.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 11, color: colors.onSurfaceVariant, height: 1.3),
             ),

@@ -3,6 +3,10 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/network/api_exception.dart';
+import '../../autorizaciones/data/autorizaciones_remote_data_source.dart';
+import '../../autorizaciones/domain/solicitud_models.dart';
+import '../../autorizaciones/presentation/selector_autorizacion.dart';
+import '../../autorizaciones/presentation/solicitudes_screen.dart';
 import '../../../core/utils/date_formatters.dart';
 import '../../auth/presentation/auth_viewmodel.dart';
 import '../../cash/presentation/cash_viewmodel.dart';
@@ -371,6 +375,7 @@ class _Seleccion {
 class _TabBateriaState extends State<_TabBateria>
     with AutomaticKeepAliveClientMixin {
   final _ds = DevolucionesRemoteDataSource();
+  final _autorizaciones = AutorizacionesRemoteDataSource();
   final _folio = TextEditingController();
   final _motivo = TextEditingController();
   final _cliente = TextEditingController();
@@ -382,6 +387,7 @@ class _TabBateriaState extends State<_TabBateria>
   String _metodo = 'efectivo';
   bool _buscando = false;
   bool _enviando = false;
+  bool _aDistancia = true;
   String? _error;
 
   @override
@@ -446,7 +452,7 @@ class _TabBateriaState extends State<_TabBateria>
     }
     if (_total <= 0) return 'El monto a devolver debe ser mayor a cero.';
     if (_motivo.text.trim().length < 4) return 'Escribe el motivo de la devolución.';
-    if (_email.text.trim().isEmpty || _password.text.isEmpty) {
+    if (!_aDistancia && (_email.text.trim().isEmpty || _password.text.isEmpty)) {
       return 'Hace falta la clave de un administrador.';
     }
     return null;
@@ -460,6 +466,7 @@ class _TabBateriaState extends State<_TabBateria>
       setState(() => _error = problema);
       return;
     }
+    if (_aDistancia) return _pedirAlPanel(venta);
     setState(() {
       _enviando = true;
       _error = null;
@@ -467,15 +474,7 @@ class _TabBateriaState extends State<_TabBateria>
     try {
       final devolucion = await _ds.devolverBateria(
         ventaId: venta.id,
-        items: [
-          for (final s in _selecciones.where((s) => s.piezas > 0))
-            RenglonADevolver(
-              ventaItemId: s.renglon.ventaItemId,
-              cantidad: s.piezas,
-              monto: s.montoActual,
-              reingresaInventario: s.reingresa,
-            ),
-        ],
+        items: _renglones,
         motivo: _motivo.text,
         metodoReembolso: _metodo,
         clienteNombre: _cliente.text,
@@ -502,6 +501,46 @@ class _TabBateriaState extends State<_TabBateria>
     }
   }
 
+  List<RenglonADevolver> get _renglones => [
+        for (final s in _selecciones.where((s) => s.piezas > 0))
+          RenglonADevolver(
+            ventaItemId: s.renglon.ventaItemId,
+            cantidad: s.piezas,
+            monto: s.montoActual,
+            reingresaInventario: s.reingresa,
+          ),
+      ];
+
+  /// El administrador aprueba desde el panel; al aprobar se registra la
+  /// devolución y la caja imprime el comprobante desde la solicitud.
+  Future<void> _pedirAlPanel(VentaDevolucion venta) async {
+    setState(() {
+      _enviando = true;
+      _error = null;
+    });
+    try {
+      final solicitud = await _autorizaciones.solicitar(
+        tipo: TipoSolicitud.devolucionBateria,
+        folio: venta.folio,
+        motivo: _motivo.text,
+        items: _renglones,
+        metodoReembolso: _metodo,
+        clienteNombre: _cliente.text,
+      );
+      if (!mounted) return;
+      _motivo.clear();
+      _cliente.clear();
+      await abrirSolicitud(context, solicitud);
+      if (mounted) await _buscar();
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } catch (_) {
+      if (mounted) setState(() => _error = 'No se pudo enviar la solicitud.');
+    } finally {
+      if (mounted) setState(() => _enviando = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -513,7 +552,7 @@ class _TabBateriaState extends State<_TabBateria>
       children: [
         Text(
           'El cliente regresa una batería. Las piezas vuelven al inventario (salvo que '
-          'vengan dañadas) y el dinero sale de la caja. Lo autoriza un administrador con su clave.',
+          'vengan dañadas) y el dinero sale de la caja. Lo autoriza un administrador.',
           style: TextStyle(color: colors.onSurfaceVariant, height: 1.35, fontSize: 13),
         ),
         const SizedBox(height: 14),
@@ -584,6 +623,12 @@ class _TabBateriaState extends State<_TabBateria>
               decoration: const InputDecoration(labelText: 'Nombre del cliente (opcional)'),
             ),
             const SizedBox(height: 12),
+            SelectorAutorizacion(
+              aDistancia: _aDistancia,
+              onCambio: (v) => setState(() => _aDistancia = v),
+            ),
+            if (!_aDistancia) ...[
+            const SizedBox(height: 12),
             TextField(
               controller: _email,
               keyboardType: TextInputType.emailAddress,
@@ -596,6 +641,7 @@ class _TabBateriaState extends State<_TabBateria>
               obscureText: true,
               decoration: const InputDecoration(labelText: 'Contraseña del administrador'),
             ),
+            ],
             const SizedBox(height: 16),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -615,7 +661,13 @@ class _TabBateriaState extends State<_TabBateria>
             const SizedBox(height: 12),
             FilledButton(
               onPressed: _enviando ? null : _confirmar,
-              child: Text(_enviando ? 'Verificando…' : 'Registrar devolución'),
+              child: Text(
+                _enviando
+                    ? 'Enviando…'
+                    : _aDistancia
+                        ? 'Enviar al administrador'
+                        : 'Registrar devolución',
+              ),
             ),
           ],
         ],

@@ -19,8 +19,9 @@ Future<List<int>> _armarDocumento(
 
 /// Imprime directo en la impresora guardada, sin escanear ni elegir. Solo
 /// abre la pantalla para elegir impresora si no hay una guardada o si la
-/// guardada no responde (apagada, sin papel, fuera de alcance).
-Future<void> imprimirDocumento(
+/// guardada no responde (apagada, sin papel, fuera de alcance). Devuelve
+/// true si el papel salió.
+Future<bool> imprimirDocumento(
   BuildContext context, {
   required String titulo,
   required Future<List<int>> Function() construir,
@@ -28,7 +29,7 @@ Future<void> imprimirDocumento(
 }) async {
   final servicio = PrinterService.instance;
   final guardada = await servicio.impresoraGuardada();
-  if (!context.mounted) return;
+  if (!context.mounted) return false;
 
   if (guardada != null) {
     final nombre = guardada.name.isEmpty ? 'la impresora' : guardada.name;
@@ -72,7 +73,7 @@ Future<void> imprimirDocumento(
       mensajero.showSnackBar(
         SnackBar(content: Text('Listo: se imprimió en $nombre')),
       );
-      return;
+      return true;
     }
     mensajero.showSnackBar(
       SnackBar(
@@ -84,8 +85,8 @@ Future<void> imprimirDocumento(
     );
   }
 
-  if (!context.mounted) return;
-  await Navigator.of(context).push(
+  if (!context.mounted) return false;
+  final impreso = await Navigator.of(context).push<bool>(
     MaterialPageRoute(
       builder: (_) => ImpresoraScreen(
         titulo: titulo,
@@ -94,6 +95,7 @@ Future<void> imprimirDocumento(
       ),
     ),
   );
+  return impreso == true;
 }
 
 /// Pantalla para imprimir en una impresora térmica Bluetooth (Fase 9).

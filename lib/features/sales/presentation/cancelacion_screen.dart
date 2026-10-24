@@ -3,11 +3,15 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/network/api_exception.dart';
+import '../../autorizaciones/data/autorizaciones_remote_data_source.dart';
+import '../../autorizaciones/domain/solicitud_models.dart';
+import '../../autorizaciones/presentation/selector_autorizacion.dart';
+import '../../autorizaciones/presentation/solicitudes_screen.dart';
 import '../../cash/presentation/cash_viewmodel.dart';
 import '../data/sales_remote_data_source.dart';
 
-/// Cancelación de un ticket cobrado por error. Pide folio, motivo y la
-/// clave de un administrador. Las piezas regresan al inventario y la venta
+/// Cancelación de un ticket cobrado por error. Pide folio y motivo; la
+/// autoriza un administrador desde el panel o con su clave aquí. Las piezas regresan al inventario y la venta
 /// sale del corte. Solo se puede mientras la caja de esa venta siga abierta;
 /// si el cliente regresa otro día, es una devolución.
 class CancelacionScreen extends StatefulWidget {
@@ -23,9 +27,11 @@ class _CancelacionScreenState extends State<CancelacionScreen> {
   final _email = TextEditingController();
   final _password = TextEditingController();
   final _ventas = SalesRemoteDataSource();
+  final _autorizaciones = AutorizacionesRemoteDataSource();
   final _moneda = NumberFormat.currency(locale: 'es_MX', symbol: r'$');
 
   bool _enviando = false;
+  bool _aDistancia = true;
   String? _error;
   Map<String, dynamic>? _cancelada;
 
@@ -52,7 +58,9 @@ class _CancelacionScreenState extends State<CancelacionScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('¿Cancelar este ticket?'),
         content: Text(
-          'El ticket ${_folio.text.trim().toUpperCase()} quedará cancelado, las piezas regresan al inventario y el importe sale del corte. No se puede deshacer.',
+          _aDistancia
+              ? 'Se pide al administrador cancelar el ticket ${_folio.text.trim().toUpperCase()}. Cuando lo apruebe, las piezas regresan al inventario y el importe sale del corte.'
+              : 'El ticket ${_folio.text.trim().toUpperCase()} quedará cancelado, las piezas regresan al inventario y el importe sale del corte. No se puede deshacer.',
         ),
         actions: [
           TextButton(
@@ -62,12 +70,13 @@ class _CancelacionScreenState extends State<CancelacionScreen> {
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Theme.of(ctx).colorScheme.error),
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Sí, cancelar'),
+            child: Text(_aDistancia ? 'Sí, enviar' : 'Sí, cancelar'),
           ),
         ],
       ),
     );
     if (seguro != true || !mounted) return;
+    if (_aDistancia) return _pedirAlPanel();
 
     setState(() {
       _enviando = true;
@@ -93,6 +102,30 @@ class _CancelacionScreenState extends State<CancelacionScreen> {
     } catch (_) {
       if (!mounted) return;
       setState(() => _error = 'No se pudo cancelar el ticket.');
+    } finally {
+      if (mounted) setState(() => _enviando = false);
+    }
+  }
+
+  Future<void> _pedirAlPanel() async {
+    setState(() {
+      _enviando = true;
+      _error = null;
+    });
+    try {
+      final solicitud = await _autorizaciones.solicitar(
+        tipo: TipoSolicitud.cancelacion,
+        folio: _folio.text,
+        motivo: _motivo.text,
+      );
+      if (!mounted) return;
+      _folio.clear();
+      _motivo.clear();
+      await abrirSolicitud(context, solicitud);
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } catch (_) {
+      if (mounted) setState(() => _error = 'No se pudo enviar la solicitud.');
     } finally {
       if (mounted) setState(() => _enviando = false);
     }
@@ -131,6 +164,12 @@ class _CancelacionScreenState extends State<CancelacionScreen> {
             ),
           ),
           const SizedBox(height: 4),
+          SelectorAutorizacion(
+            aDistancia: _aDistancia,
+            onCambio: (v) => setState(() => _aDistancia = v),
+          ),
+          if (!_aDistancia) ...[
+          const SizedBox(height: 12),
           TextField(
             controller: _email,
             keyboardType: TextInputType.emailAddress,
@@ -147,6 +186,7 @@ class _CancelacionScreenState extends State<CancelacionScreen> {
               labelText: 'Contraseña del administrador',
             ),
           ),
+          ],
           if (_error != null) ...[
             const SizedBox(height: 12),
             Text(_error!, style: TextStyle(color: colors.error)),
@@ -155,7 +195,13 @@ class _CancelacionScreenState extends State<CancelacionScreen> {
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: colors.error),
             onPressed: _enviando ? null : _confirmar,
-            child: Text(_enviando ? 'Verificando…' : 'Cancelar ticket'),
+            child: Text(
+              _enviando
+                  ? 'Enviando…'
+                  : _aDistancia
+                      ? 'Enviar al administrador'
+                      : 'Cancelar ticket',
+            ),
           ),
           if (cancelada != null) ...[
             const SizedBox(height: 22),
