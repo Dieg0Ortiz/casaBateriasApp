@@ -180,7 +180,7 @@ void main() {
     expect(textoCompleto, contains('Solicitar factura el dia de su compra'));
   });
 
-  test('cada copia dice para quién es, en un renglón y sin DUPLICADO', () async {
+  test('cada copia dice para quién es; solo la del comercio dice DUPLICADO', () async {
     final datos = DatosTicket(
       encabezado: 'CASA BATERIAS',
       sucursal: 'Matriz',
@@ -203,9 +203,11 @@ void main() {
     expect(textoComercio, contains('COMERCIO'));
     expect(textoComercio, contains('NV-MAT-000001'));
     expect(textoCliente, isNot(contains('DUPLICADO')));
-    expect(textoComercio, isNot(contains('DUPLICADO')));
+    expect(textoComercio, contains('DUPLICADO'));
+    // Letra chica (ESC M 1 = fuente B).
+    expect(comercio.join(','), contains('27,77,1'));
     // La leyenda ocupa un solo renglón: el papel apenas crece.
-    expect(comercio.length - sinLeyenda.length, lessThan(40));
+    expect(comercio.length - sinLeyenda.length, lessThan(50));
   });
 
   test('corte de caja imprime sus renglones y las firmas', () async {

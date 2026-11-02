@@ -596,10 +596,12 @@ class TicketBuilder {
     ];
   }
 
+  /// En la fuente B (la chica de la impresora), como el "COMERCIO" de los
+  /// vouchers del banco: se lee sin alargar el papel.
   List<int> _leyendaCopia(Generator g, CopiaTicket copia) {
     return g.text(
       copia.leyenda,
-      styles: const PosStyles(bold: true, align: PosAlign.center),
+      styles: const PosStyles(fontType: PosFontType.fontB, align: PosAlign.center),
     );
   }
 

@@ -116,10 +116,11 @@ String nombreMetodoPago(String metodo) {
 
 /// Para quién es cada papel cuando un ticket sale dos veces. Como en los
 /// vouchers bancarios: uno se lo lleva el cliente y otro se queda en el
-/// comercio. La leyenda ocupa un solo renglón.
+/// comercio. La leyenda ocupa un solo renglón en letra chica; la del
+/// comercio dice además que es el duplicado.
 enum CopiaTicket {
-  cliente('CLIENTE'),
-  comercio('COMERCIO');
+  cliente('- CLIENTE -'),
+  comercio('- DUPLICADO / COMERCIO -');
 
   const CopiaTicket(this.leyenda);
 
