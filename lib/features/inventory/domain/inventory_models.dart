@@ -48,3 +48,40 @@ class ItemInventario {
     );
   }
 }
+
+/// Un traspaso de pilas entre sucursales, como lo devuelve el historial
+/// (nombres ya resueltos por el servidor).
+class Traspaso {
+  const Traspaso({
+    required this.id,
+    required this.cantidad,
+    required this.fecha,
+    this.producto,
+    this.origen,
+    this.destino,
+    this.autorizo,
+    this.nota,
+  });
+
+  final String id;
+  final int cantidad;
+  final DateTime? fecha;
+  final String? producto;
+  final String? origen;
+  final String? destino;
+  final String? autorizo;
+  final String? nota;
+
+  factory Traspaso.fromJson(Map<String, dynamic> json) {
+    return Traspaso(
+      id: json['id'] as String,
+      cantidad: (json['cantidad'] as num?)?.toInt() ?? 0,
+      fecha: DateTime.tryParse(json['created_at'] as String? ?? ''),
+      producto: json['producto'] as String?,
+      origen: json['sucursal_origen'] as String?,
+      destino: json['sucursal_destino'] as String?,
+      autorizo: json['autorizado_por'] as String?,
+      nota: json['nota'] as String?,
+    );
+  }
+}

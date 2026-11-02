@@ -7,6 +7,7 @@ import '../../cash/presentation/cash_screen.dart';
 import '../../cash/presentation/cash_viewmodel.dart';
 import '../../catalog/presentation/catalog_screen.dart';
 import '../../inventory/presentation/inventory_screen.dart';
+import '../../inventory/presentation/traspasos_screen.dart';
 import '../../autorizaciones/presentation/solicitudes_screen.dart';
 import '../../sales/presentation/cancelacion_screen.dart';
 import '../../sales/presentation/pos_screen.dart';
@@ -567,6 +568,39 @@ class _HomeScreenState extends State<HomeScreen> {
                 onTap: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const PurchasesScreen()),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              color: const Color(0xFF0D9488).withValues(alpha: 0.07),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(color: const Color(0xFF0D9488).withValues(alpha: 0.25)),
+              ),
+              child: ListTile(
+                leading: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0D9488).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.local_shipping_outlined, color: Color(0xFF0D9488)),
+                ),
+                title: const Text(
+                  'Traspasos entre Sucursales',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                subtitle: const Text(
+                  'Mover pilas de una sucursal a otra; se descuentan y dan de alta solas',
+                  style: TextStyle(fontSize: 12),
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const TraspasosScreen()),
                   );
                 },
               ),
