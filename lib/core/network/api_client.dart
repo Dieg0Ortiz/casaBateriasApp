@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'api_exception.dart';
 import 'token_storage.dart';
 import '../config/app_config.dart';
@@ -103,12 +104,22 @@ class ApiClient {
       }
       await TokenStorage.instance.saveTokens(access, nuevoRefresh);
       return true;
-    } on DioException {
-      // El refresh token también venció o fue revocado: toca iniciar sesión.
-      await TokenStorage.instance.clear();
-      onSesionExpirada?.call();
+    } on DioException catch (e) {
+      // Una falla de señal no es una sesión vencida: si no, el cajero se sale
+      // del sistema a media venta. Solo el rechazo del servidor la termina.
+      if (ApiClient.sesionRechazada(e)) {
+        await TokenStorage.instance.clear();
+        onSesionExpirada?.call();
+      }
       return false;
     }
+  }
+
+  /// El servidor dijo que el refresh token ya no sirve (venció o se revocó).
+  @visibleForTesting
+  static bool sesionRechazada(DioException e) {
+    final status = e.response?.statusCode;
+    return status == 400 || status == 401 || status == 403;
   }
 
   Future<Response<dynamic>> _repetir(RequestOptions original) {

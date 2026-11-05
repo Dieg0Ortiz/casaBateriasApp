@@ -3,30 +3,79 @@ import 'package:flutter/material.dart';
 
 import 'printer_service.dart';
 
-/// Arma los bytes del documento y, si la hay, de su segunda copia.
+/// Arma los bytes de un papel; vacío si no se pudo.
 Future<List<int>> _armarDocumento(
   Future<List<int>> Function() construir,
-  Future<List<int>> Function()? construirCopia,
 ) async {
   try {
-    final bytes = await construir();
-    if (construirCopia == null || bytes.isEmpty) return bytes;
-    return [...bytes, ...await construirCopia()];
+    return await construir();
   } catch (_) {
     return const <int>[];
   }
 }
 
-/// Imprime directo en la impresora guardada, sin escanear ni elegir. Solo
-/// abre la pantalla para elegir impresora si no hay una guardada o si la
-/// guardada no responde (apagada, sin papel, fuera de alcance). Devuelve
-/// true si el papel salió.
+/// Imprime [construir] y, si hay [construirCopia], un segundo papel. La copia
+/// no sale de corrido: la impresora no corta sola y los dos tickets saldrían
+/// pegados, así que se espera a que el cajero corte el primero. Devuelve true
+/// si salió el primer papel.
 Future<bool> imprimirDocumento(
   BuildContext context, {
   required String titulo,
   required Future<List<int>> Function() construir,
   Future<List<int>> Function()? construirCopia,
 }) async {
+  final impreso = await _imprimirPapel(context, titulo, construir);
+  if (!impreso || construirCopia == null) return impreso;
+
+  var fallo = false;
+  while (context.mounted && await _pedirCopia(context, fallo: fallo)) {
+    if (!context.mounted) break;
+    if (await _imprimirPapel(context, 'la copia del comercio', construirCopia)) {
+      break;
+    }
+    fallo = true;
+  }
+  return true;
+}
+
+/// Pregunta si ya se cortó el primer papel y sale la copia.
+Future<bool> _pedirCopia(BuildContext context, {required bool fallo}) async {
+  final seguir = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    useRootNavigator: true,
+    builder: (ctx) => AlertDialog(
+      title: Text(fallo ? 'No salió la copia' : 'Corta el ticket del cliente'),
+      content: Text(
+        fallo
+            ? '¿Intentar otra vez con la copia del comercio?'
+            : 'Cuando lo hayas cortado, imprime la copia del comercio.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(false),
+          child: const Text('Sin copia'),
+        ),
+        FilledButton.icon(
+          onPressed: () => Navigator.of(ctx).pop(true),
+          icon: const Icon(Icons.print_rounded, size: 18),
+          label: const Text('Imprimir copia'),
+        ),
+      ],
+    ),
+  );
+  return seguir == true;
+}
+
+/// Imprime un papel directo en la impresora guardada, sin escanear ni elegir.
+/// Solo abre la pantalla para elegir impresora si no hay una guardada o si la
+/// guardada no responde (apagada, sin papel, fuera de alcance). Devuelve true
+/// si el papel salió.
+Future<bool> _imprimirPapel(
+  BuildContext context,
+  String titulo,
+  Future<List<int>> Function() construir,
+) async {
   final servicio = PrinterService.instance;
   final guardada = await servicio.impresoraGuardada();
   if (!context.mounted) return false;
@@ -59,11 +108,11 @@ Future<bool> imprimirDocumento(
 
     var impreso = false;
     try {
-      final bytes = await _armarDocumento(construir, construirCopia);
+      final bytes = await _armarDocumento(construir);
       impreso = await servicio.imprimir(
         guardada,
         bytes,
-        timeout: const Duration(seconds: 12),
+        timeout: const Duration(seconds: 15),
       );
     } finally {
       navigator.pop();
@@ -91,7 +140,6 @@ Future<bool> imprimirDocumento(
       builder: (_) => ImpresoraScreen(
         titulo: titulo,
         construir: construir,
-        construirCopia: construirCopia,
       ),
     ),
   );
@@ -106,7 +154,6 @@ class ImpresoraScreen extends StatefulWidget {
     super.key,
     required this.titulo,
     required this.construir,
-    this.construirCopia,
   });
 
   /// Título del documento a imprimir (ej. "Ticket de venta").
@@ -114,10 +161,6 @@ class ImpresoraScreen extends StatefulWidget {
 
   /// Genera los bytes ESC/POS del documento a imprimir.
   final Future<List<int>> Function() construir;
-
-  /// Si se informa, se imprime un segundo papel (la copia del comercio) en
-  /// la misma conexión, sin volver a elegir impresora.
-  final Future<List<int>> Function()? construirCopia;
 
   @override
   State<ImpresoraScreen> createState() => _ImpresoraScreenState();
@@ -152,6 +195,15 @@ class _ImpresoraScreenState extends State<ImpresoraScreen> {
   }
 
   Future<void> _iniciar() async {
+    if (!await _servicio.prepararBluetooth()) {
+      if (!mounted) return;
+      setState(() {
+        _mensaje = 'Hace falta el permiso de Bluetooth para imprimir. '
+            'Actívalo en los ajustes del teléfono y vuelve a intentar.';
+      });
+      return;
+    }
+    if (!mounted) return;
     if (!_servicio.bluetoothActivo) {
       setState(() {
         _mensaje = 'Activa el Bluetooth del teléfono y vuelve a intentar.';
@@ -213,9 +265,9 @@ class _ImpresoraScreenState extends State<ImpresoraScreen> {
       _imprimiendo = true;
     });
 
-    final bytes = await _armarDocumento(widget.construir, widget.construirCopia);
+    final bytes = await _armarDocumento(widget.construir);
 
-    final ok = bytes.isNotEmpty && await _servicio.escribir(bytes);
+    final ok = bytes.isNotEmpty && await _servicio.enviar(bytes);
     await _servicio.desconectar();
     if (ok) {
       // Los siguientes tickets salen directo a esta impresora.
